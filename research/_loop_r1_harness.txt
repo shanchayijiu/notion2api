@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"grok-4.5","query_source":"sdk"}
+**1. 鑳藉惁杈炬垚鐩爣锛?*
+
+鑳藉熀鏈揪鎴愮洰鏍囷紙涓诲彿琚爣璁?鈫?蹇€熷け璐ュ苟鑷姩鍒囦笅涓€涓处鍙凤級锛屼絾浠嶅瓨鍦?*鍏蜂綋婕忔礊**锛屼細瀵艰嚧鈥滀粛鎸傛 / 婕忓垏 / 鏃犻檺閲嶈瘯 / 璇潃濂藉彿鈥濓細
+
+- **婕忔礊1**锛堟棤闄愰噸璇曪級锛歚RunPrompt` / `RunPromptStream` 鍦?`!HasAgentInference` 鏃朵粎鐩存帴杩斿洖 `errAccountStarved`锛屼絾 `request_dispatch.go` 鐨勫け璐ュ惊鐜 `errAccountStarved` **鏈壒娈婂鐞?*锛堜粎 `IsQuotaExhaustedError` 鎴?`isSessionRetryableError` 璺宠繃閲嶈瘯锛夈€備富鍙疯鏍囪鍚庝粛鍙兘鍦?`pollFinalAnswer`/`loadFinalAnswerOnce`锛?0s/45s锛夋垨 `executePromptWithRotation` 鐨?quota-exhausted 璺緞涓嬭閲嶈瘯銆?*浣嶇疆锛歯otion_client.go:4159 / 4229锛圚asAgentInference 鍒嗘敮锛夛紝request_dispatch.go:313 / 314 / 604锛坢arkAccountDispatchFailure 璺緞锛?*銆?- **婕忔礊2**锛堟紡鍒囦富鍙?/ 璇潃濂藉彿锛夛細`account_pool.go` 鐨?`markAccountDispatchFailure` / `accountDispatchEligible` 浠呭湪 `retryable` 鏃惰缃喎鍗达紙`ConsecutiveFailures` 绱锛夛紝浣?`errAccountStarved` 琚垽瀹氫负 `retryable=false`锛坄isSessionRetryableError` 鏈鐩栵級锛屽鑷翠富鍙峰喎鍗存椂**鍏朵粬濂藉彿**琚姠鍗犳垨涓诲彿琚鏉€銆俙computeAccountCooldown` 鍥?`failures` 绾挎€у闀垮彲鑳借繃蹇€?*浣嶇疆锛歛ccount_pool.go:131 / 82 / 88锛坢arkAccountDispatchFailure銆乤ccountCooldownActive銆乧omputeAccountCooldown锛夛紝request_dispatch.go:537 / 595锛坮etryable 鍒ゆ柇锛?*銆?- **婕忔礊3**锛堜粛鎸傛榛戞礊锛夛細`accountSyncBlackholeTimeout=20s` / `accountPollBlackholeTimeout=45s` 瀛樺湪锛屼絾 `loadFinalAnswerOnce` / `pollFinalAnswer` 鐨?`bestEffortContext` 鏈笌 `RunPrompt` 鐨?`ctx` 瀹屽叏鎵撻€氾紝澶辫触寰幆涓粛鍙兘鍥?`context.DeadlineExceeded` 鍚庨噸璇曞鑷村杞彔鍔犮€?*浣嶇疆锛歯otion_client.go:2792 / 3150锛坰yncCtx / pollCtx锛夈€乺equest_dispatch.go:533 / 711锛坕sDispatchContextAbort锛?*銆?
+**2. 榛戞礊妫€娴嬭秴鏃跺彇鍊兼槸鍚﹀悎鐞嗭紵**
+
+20s锛坰ync锛夊拰 45s锛坧oll锛夋槸鍚堢悊鐨勫簳灞傚彇鍊硷細Notion sync 姝ｅ父璐﹀彿绉掑洖锛岄粦娲炰俊鍙峰強鏃舵毚闇层€備絾鏁翠綋**涓嶅悎鐞?*锛屽洜鏈笌璇锋眰鎬昏秴鏃讹紙`streamRequestTimeout=900s`锛夋垨 `PollMaxRounds` 鑱斿姩锛屽鑷村湪澶氳处鍙疯疆鎹㈠満鏅笅鈥滈粦娲?+ 閲嶈瘯 + 鍐峰嵈鈥濈粍鍚堝悗浠嶅彲鑳藉湪 150s+ 绾у埆鎸傛銆傚缓璁粺涓€涓?`accountBlackholeTimeout = 30s` 骞跺姞 `maxBlackholeRounds`銆?
+**3. 鏈€璇ヤ紭鍏堜慨鐨?3 涓棶棰橈紙P0锛?*
+
+1. **婕忔礊**锛歚errAccountStarved` 鏈 `request_dispatch.go` 澶辫触寰幆鐗规畩澶勭悊锛堜粎 quota-exhausted 閲嶈瘯涓€娆★級銆?*褰卞搷**锛氫富鍙疯鏍囪鍚庝粛鍙兘鏃犻檺閲嶈瘯鎴栨紡鍒囥€?*淇硶**锛氬湪 `runPromptWithAccountPool` 澶辫触璺緞涓坊鍔?`if errors.Is(err, errAccountStarved)` 鐩存帴 `markAccountDispatchFailure` 骞?continue 涓嬩竴鍊欓€夛紱鍚屾椂鍦?`executePromptWithRotation` 鏀惧紑 quota 閲嶈瘯銆?*浼樺厛绾?P0**銆?
+2. **婕忔礊**锛歚accountDispatchEligible` / `markAccountDispatchFailure` 瀵?`errAccountStarved` 鏈纭綊绫讳负 `retryable=false`锛堝喎鍗翠富鍙凤級銆?*褰卞搷**锛氫富鍙疯鏍囪鍚庡叾浠栧ソ鍙疯鎶㈠崰鎴栦富鍙疯鏉€銆?*淇硶**锛氭墿灞?`isSessionRetryableError` / `retryable` 鍒ゆ柇閫昏緫锛屽皢 `errAccountStarved` 鏄庣‘璁句负闈為噸璇曪紝骞舵洿鏂?`ConsecutiveFailures` 閫昏緫銆?*浼樺厛绾?P0**銆?
+3. **婕忔礊**锛歚loadFinalAnswerOnce` / `pollFinalAnswer` 榛戞礊妫€娴嬩笌 `RunPrompt` 鎬?`ctx` 鏈畬鍏ㄦ墦閫氾紝涓旀湭鍚屾鍒?`account_pool.go` 鍐峰嵈鏈哄埗銆?*褰卞搷**锛氳鏍囪璐﹀彿浠嶅彲鑳藉湪 45s+ 杞涓寕姝汇€?*淇硶**锛氱粺涓€ `blackholeTimeout` 鍒?`notion_client.go` 鐨?`RunPrompt` 鍏ュ彛锛屽苟灏嗛粦娲炲け璐ョ洿鎺ヨЕ鍙?`markAccountDispatchFailure`锛坮etryable=false锛夈€?*浼樺厛绾?P0**銆?

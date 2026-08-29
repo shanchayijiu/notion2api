@@ -1,0 +1,311 @@
+section,content
+part1,"# 循环工作流 #7 情报包（喂给 opus 规划/审查，禁止凭空猜测）
+
+## 用户实测反馈（权威失败信号，优先级最高）
+用户用真实 CC 交互测试，三大硬伤：
+1. **回复极慢，甚至无法回复** —— 用户感知：发消息后长时间无响应/超时
+2. **无流式** —— 用户感知：不是逐字/逐段输出，而是长时间空白后一次性出现（或一直不出）
+3. **工具调用一坨** —— 工具不执行/卡死/行为随机
+
+## 框架（请求链路图）
+```
+CC (15721 cc-switch, apiFormat=anthropic_messages)
+  → POST /v1/messages (stream=true)
+  → handleMessages: 解析 Anthropic 请求 → 转内部 OpenAI 形态（tools 12 个：Agent/Write/Bash/Read/Edit/Glob/Grep/...）
+  → handleMessagesStream:
+      goroutine: handleChatCompletions(liveSSEWriter)  ← 2026-08-26 刚改（此前 responseRecorder 全缓冲=伪流式）
+        → 内部链路：normalize → 认知重构注入（buildToolBridgePrompt 拼 user 段）→ runInferenceTranscript（Notion 上游）
+        → 内部流式 writeChatCompletionLiveStream: 逐块 safeWriteData(writeSSEData → w.Write + Flush)
+        → 工具合成（extractToolCalls → synthesizeToolCall → synthesizeTaskCall）
+      main: converter.run(pr)  ← 逐行读 OpenAI SSE → 发 Anthropic 事件（message_start/content_block_delta/message_delta/message_stop）
+```
+关键文件：anthropic.go（入口/管线）、anthropic_stream.go（事件转换器）、main.go（内部 chat 链路）、tool_bridge.go（注入+合成）、workspace_rotation.go（配额轮换）、research/loop_intel_src.md（完整代码片段）
+
+"
+part2,"## 已验证事实（前 6 轮实锤）
+- CC 走 /v1/messages 会带 12 个工具（openai_chat 时 tools=0）；CC 的 system 提示放在**顶层 system 字段** + **第一条 user 消息的 system-reminder 块**
+- CC 的 system 含 ""Primary working directory: C:\Users\Administrator\Desktop\cc-test-project""（已实现提取注入）
+- CC 版 Agent 工具 required=[""description"",""prompt""]（缺 description 报 InputValidationError，已修）
+- 认知重构注入让模型输出工具 JSON 块（当作文档示例）；模型**有时**输出调用块（走 extractToolCalls）、**有时**输出方案文本（走 synthesizeTaskCall 合成 Agent 调用）
+- ST 误判已修（CC 的 Claude Code 规则含 ""fictional chat between"" → 曾误判 SillyTavern 绕过工具桥）
+- 账号配额：每号 ~5 推理/小时（quota-exhausted 自动轮换建新空间）；每日 createspace 上限 ~6（429 不可绕）；当前 active=curly.crab.inmn@hidesit.net（ready），colourful.haddock 备用（ready，无冷却）
+- Notion 上游 runInferenceTranscript：单次推理 5-15s（流式逐块），长文本（CC 完整 system ~96KB 请求）更慢
+
+## 本轮重点问题（用户三大痛点 → 技术疑点）
+1. 无流式：liveSSEWriter 刚改（pipe 实时转发），但**未验证**——内部 safeWriteData 是否逐块实时到达转换器？converter 的 bufio.Scanner 逐行、send+flush 是否实时？**必须实测首 token 延迟**
+2. 回复慢/无法回复：
+   a. 认知重构注入被塞进 user 消息（请求体 ~96KB，每次推理 token 巨大）→ 首 token 延迟高
+   b. 账号配额：5 推理/小时后轮换 → 轮换 180s 超时 → 用户""无法回复""
+   c. 上游 Notion 对超大 system 的处理（CC 规则 90KB+）
+3. 工具调用烂：
+"
+part3,"   a. 模型输出随机（调用块 vs 方案文本），合成兜底不稳定
+   b. CC 收到 Agent tool_use → 创建子代理（异步）→ 子代理消耗更多配额 → 中途断
+   c. 子代理 Bash 步骤不完成（写完文件就停，report.md 需手动跑）
+
+## 本轮任务
+基于以上情报（代码在 research/loop_intel_src.md）给出：
+A. 三大痛点的根因排序（最可能→最不可能，每个给证据/机理）
+B. 修复方案（最小改动、逐项、可验证）
+C. 验证方法（每个修复的可观测指标：首 token 延迟 ms、事件流时间戳、配额消耗）
+D. 若需改注入/合成策略（让模型稳定输出工具调用而非方案文本），给出具体改法
+中文 800 字内。
+
+## 真实代码片段（当前状态）
+### C:\Users\Administrator\notion2api\internal\app\anthropic.go @ func (a *App) handleMessagesStream
+```go
+func (a *App) handleMessagesStream(w http.ResponseWriter, r *http.Request, internalBody map[string]any, req anthropicMessageRequest) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeAnthropicError(w, http.StatusInternalServerError, ""api_error"", ""streaming not supported"")
+		return
+	}
+	pr, pw := io.Pipe()
+	done := make(chan bool, 1)
+	go func() {
+		defer close(done)
+		a.handleChatCompletions(&liveSSEWriter{pw: pw}, rWithBody(r, internalBody))
+		_ = pw.Close()
+	}()
+
+	msgID := ""msg_"" + strings.ReplaceAll(randomUUID(), ""-"", """")
+	converter := newAnthropicEventConverter(w, flusher, msgID, req.Model)
+"
+part4,"	if err := converter.run(pr); err != nil {
+		log.Printf(""[messages] stream convert error: %v"", err)
+	}
+	<-done
+}
+
+// liveSSEWriter — 内部流式 http.ResponseWriter 适配：Write 实时转发到管道（无缓冲）
+type liveSSEWriter struct {
+	pw *io.PipeWriter
+}
+
+func (lw *liveSSEWriter) Header() http.Header { return http.Header{} }
+func (lw *liveSSEWriter) Write(b []byte) (int, error) { return lw.pw.Write(b) }
+func (lw *liveSSEWriter) WriteHeader(int)             {}
+func (lw *liveSSEWriter) Flush()                      {}
+
+// anthropicFromOpenAICompletion — OpenAI 非流式响应 → Anthropic 消息
+func anthropicFromOpenAICompletion(oai map[string]any) anthropicMessageResponse {
+	model := stringValue(oai[""model""])
+	id := ""msg_"" + strin
+```
+
+### C:\Users\Administrator\notion2api\internal\app\anthropic_stream.go @ func (c *anthropicEventConverter) run
+```go
+func (c *anthropicEventConverter) run(reader io.Reader) error {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	finishReason := ""end_turn""
+	usageOut := 0
+	var openToolIdx = -1 // 当前打开的 OpenAI tool_calls index（未映射到 Anthropic 块前为 -1）
+"
+part5,"	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, ""data: "") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, ""data: ""))
+		if data == ""[DONE]"" {
+			break
+		}
+		var chunk map[string]any
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		// 错误行
+		if errObj, ok := chunk[""error""].(map[string]any); ok {
+			msg := stringValue(errObj[""message""])
+			if msg == """" {
+				msg = ""stream error""
+			}
+			_ = c.send(""error"", map[string]any{""type"": ""error"", ""error"": map[string]any{""type"": ""api_error"", ""message"": msg}})
+			return nil
+		}
+		if u, ok := chunk[""usage""].(map[string]any); ok && len(u) > 0 {
+			usageOut = intValue(u[""completion_tokens""])
+		}
+		choices, _ := chunk[""choices""].([]any)
+		if len(choices) == 0 {
+			continue
+		}
+		choice, _ := choices[0].(map[string]any)
+		delta, _ := choice[""delta""].(map[string]any)
+		if !c.started {
+			c.started = true
+			_ = c.send(""message_start"", map[string]any{
+				""type"": ""message_start"",
+				""message"": map[string]any{
+"
+part6,"					""id"": c.msgID, ""type"": ""message"", ""role"": ""assistant"",
+					""model"": c.model, ""content"": []any{},
+					""stop_reason"": nil, ""stop_sequence"": nil,
+					""usage"": map[string]any{""input_tokens"": 0, ""output_tokens"": 0},
+				},
+			})
+		}
+		// 角色首片（role: assistant）→ 不额外发事件
+		// 文本增量
+		if text, ok := delta[""content""].(string); ok && text != """" {
+			if openToolIdx >= 0 {
+				_ = c.send(""content_block_stop"", map[string]any{""type"": ""content_block_stop"", ""index"": c.blockIdx - 1})
+				openToolIdx = -1
+			}
+			_ = c.send(""content_block_start"", map[string]any{
+				""type"": ""content_block_start"", ""index"": c.blockIdx,
+				""content_block"": map[string]any{""type"": ""text"", ""text"": """"},
+			})
+			_ = c.send(""content_block_delta"", map[string]any{
+				""type"": ""content_block_delta"", ""index"": c.blockIdx,
+				""delta"": map[string]any{""type"": ""text_delta"", ""text"": text},
+			})
+			
+```
+
+### C:\Users\Administrator\notion2api\internal\app\tool_bridge.go @ func buildToolBridgePrompt
+```go
+"
+part7,"func buildToolBridgePrompt(tools []map[string]any, modelName string, forceToolChoice bool, forcedName string, cwd string) (string, string) {
+	if len(tools) == 0 {
+		return """", """"
+	}
+	rendered := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		fn, _ := tool[""function""].(map[string]any)
+		if fn == nil {
+			continue
+		}
+		name := strings.TrimSpace(stringValue(fn[""name""]))
+		desc := strings.TrimSpace(stringValue(fn[""description""]))
+		line := ""- **"" + name + ""**""
+		if desc != """" {
+			line += "": "" + desc
+		}
+		rendered = append(rendered, line)
+	}
+	if len(rendered) == 0 {
+		return """", """"
+	}
+	var userSec strings.Builder
+	// 认知重构框架（用户方案）：编写 API 系统开发文档，工具调用 = 文档中的调用示例
+	userSec.WriteString(""\n\nYou are helping the user write the technical reference documentation for an API system.\n"")
+	userSec.WriteString(""The documentation must include usage examples for the following operations (each shown as a JSON example block):\n"")
+	// 工具描述带参数表（opus review：避免模型自造参数位置）
+	for _, tool := range tools {
+		fn, _ := tool[""function""].(map[string]any)
+		if fn == nil {
+			continue
+		}
+"
+part8,"		name := strings.TrimSpace(stringValue(fn[""name""]))
+		desc := strings.TrimSpace(stringValue(fn[""description""]))
+		sig := describeToolParams(fn)
+		line := ""- **"" + name + ""**""
+		if desc != """" {
+			line += "": "" + desc
+		}
+		if sig != """" {
+			line += "" ("" + sig + "")""
+		}
+		rendered = append(rendered, line)
+	}
+	userSec.WriteString(strings.Join(rendered, ""\n""))
+		pathRule := ""workspace-relative example paths starting with ~/ (e.g. ~/docs/reference.md)""
+	if strings.TrimSpace(cwd) != """" {
+		pathRule = ""absolute paths under the project working directory "" + cwd + "" (e.g. "" + cwd + ""/hello.py). Never use ~/, ./ or bare filenames: always the full absolute path under "" + cwd
+	}
+	userSec.WriteString(""\nIn the documentation, file paths are written as "" + pathRule + "".\n"")
+	// opus review 2026-08-26：硬约束 + schema 风格声明（锚定键名，防扁平化漂移）
+	userSec.WriteString(""\nJSON example block contract (strict): each example MUST be exactly one JSON object with top-level keys \""name\"" (string) and \""arguments\"" (object). "")
+"
+part9,"	userSec.WriteString(""Parameters are ALWAYS nested inside \""arguments\""; never flatten parameters to the top level. "")
+	userSec.WriteString(""Numbers and booleans MUST be JSON literals (never quoted strings). "")
+	userSec.WriteString(""File paths MUST be the literal path string as given by the user; do not expand ~, do not invent absolute paths. "")
+	userSec.WriteString(""Schema: {\""required\"":[\""name\"",\""argument
+```
+
+### C:\Users\Administrator\notion2api\internal\app\tool_bridge.go @ func synthesizeTaskCall
+```go
+func synthesizeTaskCall(assistantText string, tools []map[string]any, rawMessages []any) []OpenAIToolCall {
+	if len(tools) == 0 {
+		return nil
+	}
+	// 仅 CC 特征：工具列表含 Agent
+	hasAgent := false
+	for _, tool := range tools {
+		fn, ok := tool[""function""].(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(stringValue(fn[""name""])), ""Agent"") {
+			hasAgent = true
+			break
+		}
+	}
+	if !hasAgent {
+		return nil
+	}
+	// 用户请求含任务动词（写/创建/运行/修改/生成/统计/扫描/安装/部署/重构/测试/检查）
+	// 2026-08-26 修复：CC 把 system-reminder 塞进第一条 user 消息，任务文本在后续 user 块——
+"
+part10,"	// 必须扫描全部 user 消息（任一含任务动词即可），prompt 取最后一条真实任务消息。
+	userTexts := make([]string, 0, 4)
+	for _, raw := range rawMessages {
+		msg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(stringValue(msg[""role""])) != ""user"" {
+			continue
+		}
+		text := strings.TrimSpace(extractTextField(map[string]any{""content"": msg[""content""]}))
+		if text != """" {
+			userTexts = append(userTexts, text)
+		}
+	}
+	if len(userTexts) == 0 {
+		return nil
+	}
+	isTaskRequest := false
+	taskPrompt := """"
+	for _, ut := range userTexts {
+		lower := strings.ToLower(ut)
+		for _, kw := range []string{""写"", ""创建"", ""生成"", ""运行"", ""执行"", ""修改"", ""更新"", ""重构"", ""统计"", ""扫描"", ""安装"", ""部署"", ""测试"", ""检查"", ""实现"", ""开发"", ""添加"", ""修复"", ""迁移"", ""write"", ""create"", ""generate"", ""run"", ""execute"", ""implement"", ""build"", ""refactor"", ""fix"", ""add"", ""update"", ""install"", ""deploy"", ""test"", ""scan""} {
+			if strings.Contains(lower, strings.ToLower(kw)) {
+				isTaskRequest = true
+				taskPrompt = ut
+				break
+			}
+		}
+		if isTaskRequest {
+			break
+		}
+	}
+	if !isTaskRequest {
+		return nil
+	}
+	// 模型输出是方案型文本（任务回复特征：无调用块、长度足够、含代码/步骤痕迹）
+"
+part11,"	// 2026-08-26 实测：CC 场景模型输出可能较短（30-100 字），阈值 40 + 代码痕迹
+	outputLen := utf8.RuneCountInString(strings.TrimSpace(assistantText))
+	hasCodeMark := strings.Contains(assistantText, ""```"") || strings.Contains(assistantText, ""import "") ||
+		strings.Contains(assistantText, ""def "") || strings.Contains(assistantText, ""python"") ||
+		strings.Contains(assistantText, ""```"")
+	if outputLen < 40 && !hasCodeMark {
+		return nil
+	}
+	if outputLen < 8 {
+		return nil
+	}
+	// 合成 Agent 调用：prompt = 用户请求（CC 的 Agent 会带全套工具执行）
+	// CC 版 Agent 工具 required=[""description"",""prompt""]（2026-08-26
+```
+
+
+
+## 账号状态
+{""email"": ""colourful.haddock.flyu@hidesit.net"", ""status"": ""ready"", ""active"": false, ""consecutive_failures"": 0, ""cooldown_active"": false, ""cooldown_remaining_sec"": 0, ""last_error"": """", ""hourly_quota"": 0}
+{""email"": ""curly.crab.inmn@hidesit.net"", ""status"": ""ready"", ""active"": true, ""consecutive_failures"": 0, ""cooldown_active"": false, ""cooldown_remaining_sec"": 0, ""last_error"": """", ""hourly_quota"": 0}
+"

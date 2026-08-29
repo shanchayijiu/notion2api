@@ -1,0 +1,11 @@
+notion2api.local {
+    reverse_proxy 127.0.0.1:8787
+
+    request_body {
+        max_size 25MB
+    }
+
+    header {
+        -Server
+    }
+}

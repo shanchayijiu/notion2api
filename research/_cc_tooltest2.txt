@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"grok-4.5","query_source":"sdk"}
+**SECRET-7F3A9C2B-805404607**

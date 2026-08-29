@@ -1,0 +1,43 @@
+Skip to content
+M
+mskgxcku2y29’s Space
+Home
+Chat
+Meetings
+Inbox
+Meetings
+New AI meeting note
+View all
+Private
+Add new
+Notion apps
+Notion Calendar
+Notion Desktop
+Library
+My Tasks
+Marketplace
+Help
+Trash
+Upgrade plan
+New chat
+Ctrl+O
+Notion AI
+/
+Calculate clock hand angle
+A clock shows 3:15. What is the angle between the hour and minute hands? Think through the calculation step by step.
+5:51 PM
+At 3:15:
+1) Minute hand angle from 12
+Each minute is (6^circ) (because (360^circ/60=6^circ)).
+At 15 minutes: (15 times 6^circ = 90^circ).
+2) Hour hand angle from 12
+Each hour mark is (30^circ) (because (360^circ/12=30^circ)).
+At 3:00, the hour hand is at (3 times 30^circ = 90^circ).
+The hour hand also moves as minutes pass: it moves (30^circ) per hour (=frac{30^circ}{60}=0.5^circ) per minute.
+In 15 minutes, it moves (15 times 0.5^circ = 7.5^circ).
+So at 3:15, the hour hand is at (90^circ + 7.5^circ = 97.5^circ).
+3) Angle between them
+Difference: (|97.5^circ - 90^circ| = 7.5^circ).
+Answer: (7.5^circ) (the smaller angle).
+Auto
+Notion AI finished.

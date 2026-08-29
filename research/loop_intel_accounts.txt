@@ -1,0 +1,2 @@
+{"email": "colourful.haddock.flyu@hidesit.net", "status": "ready", "active": false, "consecutive_failures": 0, "cooldown_active": false, "cooldown_remaining_sec": 0, "last_error": "", "hourly_quota": 0}
+{"email": "curly.crab.inmn@hidesit.net", "status": "ready", "active": true, "consecutive_failures": 0, "cooldown_active": false, "cooldown_remaining_sec": 0, "last_error": "", "hourly_quota": 0}

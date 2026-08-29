@@ -1,0 +1,335 @@
+goroutine 23 [running]:
+runtime/pprof.writeGoroutineStacks({0x7ff7a2720be0, 0xc0005d44b0})
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:756 +0x6b
+runtime/pprof.writeGoroutine({0x7ff7a2720be0?, 0xc0005d44b0?}, 0x41?)
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:745 +0x25
+runtime/pprof.(*Profile).WriteTo(0x7ff7a2d79260?, {0x7ff7a2720be0?, 0xc0005d44b0?}, 0xc?)
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:371 +0x14b
+net/http/pprof.handler.ServeHTTP({0xc00225b031, 0x9}, {0x7ff7a2727940, 0xc0005d44b0}, 0xc002266500)
+	C:/Program Files/Go/src/net/http/pprof/pprof.go:272 +0x52a
+net/http/pprof.Index({0x7ff7a2727940, 0xc0005d44b0}, 0xc002266500?)
+	C:/Program Files/Go/src/net/http/pprof/pprof.go:389 +0xda
+net/http.HandlerFunc.ServeHTTP(0x7ff7a2db6420?, {0x7ff7a2727940?, 0xc0005d44b0?}, 0x7ff7a1e726b6?)
+	C:/Program Files/Go/src/net/http/server.go:2322 +0x29
+net/http.(*ServeMux).ServeHTTP(0x7ff7a1c364f9?, {0x7ff7a2727940, 0xc0005d44b0}, 0xc002266500)
+	C:/Program Files/Go/src/net/http/server.go:2861 +0x1c7
+net/http.serverHandler.ServeHTTP({0xc00012b580?}, {0x7ff7a2727940?, 0xc0005d44b0?}, 0x1?)
+	C:/Program Files/Go/src/net/http/server.go:3340 +0x8e
+net/http.(*conn).serve(0xc000118e10, {0x7ff7a2729218, 0xc0003fe450})
+	C:/Program Files/Go/src/net/http/server.go:2109 +0x665
+created by net/http.(*Server).Serve in goroutine 13
+	C:/Program Files/Go/src/net/http/server.go:3493 +0x485
+
+goroutine 1 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6800, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x250?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x0?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc0000b8a20, 0xc000557348)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).acceptOne(0xc0000b8a08, 0x278, {0xc0001080f0?, 0xc0005573a8?, 0x7ff7a1cb3505?}, 0xc0005573dc?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:1059 +0x65
+internal/poll.(*FD).Accept(0xc0000b8a08, 0xc0005cf528)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:1093 +0x1b6
+net.(*netFD).accept(0xc0000b8a08)
+	C:/Program Files/Go/src/net/fd_windows.go:202 +0x4b
+net.(*TCPListener).accept(0xc0001c6100)
+	C:/Program Files/Go/src/net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0xc0001c6100)
+	C:/Program Files/Go/src/net/tcpsock.go:380 +0x30
+net/http.(*Server).Serve(0xc000130100, {0x7ff7a2727760, 0xc0001c6100})
+	C:/Program Files/Go/src/net/http/server.go:3463 +0x30c
+net/http.(*Server).ListenAndServe(0xc000130100)
+	C:/Program Files/Go/src/net/http/server.go:3389 +0x72
+notion2api/internal/app.Main()
+	C:/Users/Administrator/notion2api/internal/app/main.go:2975 +0x487
+main.main()
+	C:/Users/Administrator/notion2api/cmd/notion2api/main.go:8 +0xf
+
+goroutine 8 [select]:
+database/sql.(*DB).connectionOpener(0xc000218ea0, {0x7ff7a2729250, 0xc0000e5310})
+	C:/Program Files/Go/src/database/sql/sql.go:1261 +0x87
+created by database/sql.OpenDB in goroutine 1
+	C:/Program Files/Go/src/database/sql/sql.go:841 +0x130
+
+goroutine 18 [select]:
+database/sql.(*DB).connectionOpener(0xc00030e0d0, {0x7ff7a2729250, 0xc000318000})
+	C:/Program Files/Go/src/database/sql/sql.go:1261 +0x87
+created by database/sql.OpenDB in goroutine 1
+	C:/Program Files/Go/src/database/sql/sql.go:841 +0x130
+
+goroutine 9 [chan receive]:
+notion2api/internal/app.(*SQLiteWriter).run(0xc0001c6040)
+	C:/Users/Administrator/notion2api/internal/app/sqlite_writer.go:158 +0x15d
+created by notion2api/internal/app.newSQLiteWriter in goroutine 1
+	C:/Users/Administrator/notion2api/internal/app/sqlite_writer.go:53 +0xfa
+
+goroutine 10 [select]:
+notion2api/internal/app.(*ServerState).startResponseStoreCleanupLoop.func1()
+	C:/Users/Administrator/notion2api/internal/app/main.go:759 +0xf7
+created by notion2api/internal/app.(*ServerState).startResponseStoreCleanupLoop in goroutine 1
+	C:/Users/Administrator/notion2api/internal/app/main.go:755 +0x12b
+
+goroutine 11 [select]:
+notion2api/internal/app.(*App).StartEphemeralConversationCleanupLoop.func1()
+	C:/Users/Administrator/notion2api/internal/app/main.go:1562 +0xf5
+created by notion2api/internal/app.(*App).StartEphemeralConversationCleanupLoop in goroutine 1
+	C:/Users/Administrator/notion2api/internal/app/main.go:1557 +0x91
+
+goroutine 12 [select]:
+notion2api/internal/app.(*App).StartWorkspaceDeletionLoop.func1()
+	C:/Users/Administrator/notion2api/internal/app/workspace_deletion.go:26 +0xfa
+created by notion2api/internal/app.(*App).StartWorkspaceDeletionLoop in goroutine 1
+	C:/Users/Administrator/notion2api/internal/app/workspace_deletion.go:21 +0x85
+
+goroutine 13 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6a00, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x264?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x0?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc00019a020, 0xc0005c7b58)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).acceptOne(0xc00019a008, 0x2bc, {0xc0005080f0?, 0xc0005c7bb8?, 0x7ff7a1cb3505?}, 0xc0005c7bec?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:1059 +0x65
+internal/poll.(*FD).Accept(0xc00019a008, 0xc0005c7d38)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:1093 +0x1b6
+net.(*netFD).accept(0xc00019a008)
+	C:/Program Files/Go/src/net/fd_windows.go:202 +0x4b
+net.(*TCPListener).accept(0xc00012a000)
+	C:/Program Files/Go/src/net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0xc00012a000)
+	C:/Program Files/Go/src/net/tcpsock.go:380 +0x30
+net/http.(*Server).Serve(0xc000018000, {0x7ff7a2727760, 0xc00012a000})
+	C:/Program Files/Go/src/net/http/server.go:3463 +0x30c
+net/http.(*Server).ListenAndServe(0xc000018000)
+	C:/Program Files/Go/src/net/http/server.go:3389 +0x72
+net/http.ListenAndServe(...)
+	C:/Program Files/Go/src/net/http/server.go:3704
+notion2api/internal/app.Main.func1(...)
+	C:/Users/Administrator/notion2api/internal/app/main.go:2963
+created by notion2api/internal/app.Main in goroutine 1
+	C:/Users/Administrator/notion2api/internal/app/main.go:2961 +0x248
+
+goroutine 50 [select]:
+net/http.(*persistConn).roundTrip(0xc0020fc7e0, 0xc000319540)
+	C:/Program Files/Go/src/net/http/transport.go:2836 +0x74d
+net/http.(*Transport).roundTrip(0xc000176d00, 0xc002266280)
+	C:/Program Files/Go/src/net/http/transport.go:696 +0xa8f
+net/http.(*Transport).RoundTrip(0xc000089808?, 0x7ff7a271f760?)
+	C:/Program Files/Go/src/net/http/roundtrip.go:33 +0x18
+net/http.send(0xc002266280, {0x7ff7a271f760, 0xc000176d00}, {0x1?, 0xc00223de28?, 0x0?})
+	C:/Program Files/Go/src/net/http/client.go:259 +0x5e2
+net/http.(*Client).send(0xc00031dec0, 0xc002266280, {0x2e3?, 0x300?, 0x0?})
+	C:/Program Files/Go/src/net/http/client.go:180 +0x91
+net/http.(*Client).do(0xc00031dec0, 0xc002266280)
+	C:/Program Files/Go/src/net/http/client.go:729 +0x9c9
+net/http.(*Client).Do(...)
+	C:/Program Files/Go/src/net/http/client.go:587
+notion2api/internal/app.(*NotionAIClient).postJSONResponseWithReferer(0xc0002efb08, {0x7ff7a27292c0, 0xc0001802a0}, {0xc00221e6c0, 0x3a}, 0xc0022516e0, {0x7ff7a25ceec2, 0x10}, {0xc000031b30, 0x47})
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:1217 +0x773
+notion2api/internal/app.(*NotionAIClient).postJSONWithReferer(0x24?, {0x7ff7a27292c0?, 0xc0001802a0?}, {0xc00221e6c0?, 0x0?}, 0x0?, {0x7ff7a25ceec2?, 0x0?}, {0xc000031b30, 0x47})
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:1161 +0x7c
+notion2api/internal/app.(*NotionAIClient).syncThreadMessages(0xc0002efb08, {0x7ff7a27292c0, 0xc0001802a0}, {0xc000706810, 0x24}, {0xc000319310, 0x5, 0x0?})
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:2833 +0x5a5
+notion2api/internal/app.(*NotionAIClient).pollFinalAnswerStream(0xc0002efb08, {0x7ff7a27292c0, 0xc0001802a0}, {0xc000706810, 0x24}, 0xc0001381c8)
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:4070 +0x2a5
+notion2api/internal/app.(*NotionAIClient).RunPromptStreamWithSink(_, {_, _}, {{0xc00011acf8, 0x4}, {0xc00011acf8, 0x4}, {0x0, 0x0}, {0xc0003b44f0, ...}, ...}, ...)
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:4190 +0x605
+notion2api/internal/app.(*NotionAIClient).RunPromptStream(...)
+	C:/Users/Administrator/notion2api/internal/app/notion_client.go:4164
+notion2api/internal/app.(*App).runPromptWithSession.func1({_, _}, {{0xc00011acf8, 0x4}, {0xc00011acf8, 0x4}, {0x0, 0x0}, {0xc0003b44f0, 0x7}, ...}, ...)
+	C:/Users/Administrator/notion2api/internal/app/account_pool.go:267 +0xd5
+notion2api/internal/app.(*App).executePromptWithRotation(_, {_, _}, {{0xc00002d0e0, 0x2d}, {0xc000132080, 0x73}, {0xc00018d880, 0x9}, 0x2253, ...}, ...)
+	C:/Users/Administrator/notion2api/internal/app/account_pool.go:309 +0x108
+notion2api/internal/app.(*App).runPromptWithSession(_, {_, _}, {{0xc00002d0e0, 0x2d}, {0xc000132080, 0x73}, {0xc00018d880, 0x9}, 0x2253, ...}, ...)
+	C:/Users/Administrator/notion2api/internal/app/account_pool.go:273 +0x39c
+notion2api/internal/app.(*App).runPromptWithAccountPool(_, _, {{0xc00011acf8, 0x4}, {0xc00011acf8, 0x4}, {0x0, 0x0}, {0xc0003b44f0, 0x7}, ...}, ...)
+	C:/Users/Administrator/notion2api/internal/app/request_dispatch.go:507 +0xb65
+notion2api/internal/app.(*App).runPrompt(_, _, {{0xc00011acf8, 0x4}, {0xc00011acf8, 0x4}, {0x0, 0x0}, {0xc0003b44f0, 0x7}, ...})
+	C:/Users/Administrator/notion2api/internal/app/main.go:1663 +0x17a
+notion2api/internal/app.(*App).handleChatCompletions(0xc0001c6080, {0x7ff7a27270d0, 0xc0001262a0}, 0xc0002a83c0)
+	C:/Users/Administrator/notion2api/internal/app/main.go:1809 +0x1cf0
+notion2api/internal/app.(*App).ServeHTTP(0xc0001c6080, {0x7ff7a2727940, 0xc0005d4000}, 0xc0002a83c0)
+	C:/Users/Administrator/notion2api/internal/app/main.go:2940 +0xa07
+net/http.serverHandler.ServeHTTP({0x7ff7a2723b48?}, {0x7ff7a2727940?, 0xc0005d4000?}, 0x1?)
+	C:/Program Files/Go/src/net/http/server.go:3340 +0x8e
+net/http.(*conn).serve(0xc0000e2090, {0x7ff7a2729218, 0xc0002b6750})
+	C:/Program Files/Go/src/net/http/server.go:2109 +0x665
+created by net/http.(*Server).Serve in goroutine 1
+	C:/Program Files/Go/src/net/http/server.go:3493 +0x485
+
+goroutine 66 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6600, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x26c?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0xc0000e2100?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc00019a2a0, 0x7ff7a2629e20)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).Read(0xc00019a288, {0xc0001c6161, 0x1, 0x1})
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:533 +0x1ee
+net.(*netFD).Read(0xc00019a288, {0xc0001c6161?, 0x7ff7a2e00a80?, 0x0?})
+	C:/Program Files/Go/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc00007e0b8, {0xc0001c6161?, 0xc0001c6080?, 0x0?})
+	C:/Program Files/Go/src/net/net.go:196 +0x45
+net/http.(*connReader).backgroundRead(0xc0001c6140)
+	C:/Program Files/Go/src/net/http/server.go:702 +0x33
+created by net/http.(*connReader).startBackgroundRead in goroutine 50
+	C:/Program Files/Go/src/net/http/server.go:698 +0xb6
+
+goroutine 71 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6400, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x2a4?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x2a4?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc00019aa20, 0x7ff7a2629e20)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).Read(0xc00019aa08, {0xc0001f0000, 0x1300, 0x1300})
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:533 +0x1ee
+net.(*netFD).Read(0xc00019aa08, {0xc0001f0000?, 0xc0001f0000?, 0x5?})
+	C:/Program Files/Go/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc00007e128, {0xc0001f0000?, 0x16ddfcf0fa8?, 0x16d9a850ed0?})
+	C:/Program Files/Go/src/net/net.go:196 +0x45
+crypto/tls.(*atLeastReader).Read(0xc0001386f0, {0xc0001f0000?, 0x120a?, 0x65?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:816 +0x3b
+bytes.(*Buffer).ReadFrom(0xc0001797a8, {0x7ff7a2721180, 0xc0001386f0})
+	C:/Program Files/Go/src/bytes/buffer.go:217 +0x98
+crypto/tls.(*Conn).readFromUntil(0xc000179508, {0x16de003b0a8, 0xc00007e128}, 0x7ff7a1c013f4?)
+	C:/Program Files/Go/src/crypto/tls/conn.go:838 +0xde
+crypto/tls.(*Conn).readRecordOrCCS(0xc000179508, 0x0)
+	C:/Program Files/Go/src/crypto/tls/conn.go:627 +0x3db
+crypto/tls.(*Conn).readRecord(...)
+	C:/Program Files/Go/src/crypto/tls/conn.go:589
+crypto/tls.(*Conn).Read(0xc000179508, {0xc000010000, 0x1000, 0xc0003feab0?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:1392 +0x145
+net/http.(*persistConn).Read(0xc0004fb680, {0xc000010000?, 0x7ff7a1e89ba5?, 0x7ff7a271f8a0?})
+	C:/Program Files/Go/src/net/http/transport.go:2125 +0x47
+bufio.(*Reader).fill(0xc000114300)
+	C:/Program Files/Go/src/bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc000114300, 0x1)
+	C:/Program Files/Go/src/bufio/bufio.go:152 +0x53
+net/http.(*persistConn).readLoop(0xc0004fb680)
+	C:/Program Files/Go/src/net/http/transport.go:2278 +0x172
+created by net/http.(*Transport).dialConn in goroutine 67
+	C:/Program Files/Go/src/net/http/transport.go:1947 +0x174f
+
+goroutine 72 [select]:
+net/http.(*persistConn).writeLoop(0xc0004fb680)
+	C:/Program Files/Go/src/net/http/transport.go:2600 +0xe7
+created by net/http.(*Transport).dialConn in goroutine 67
+	C:/Program Files/Go/src/net/http/transport.go:1948 +0x17a5
+
+goroutine 55 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6200, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x280?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x280?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc0000b96a0, 0x7ff7a2629e20)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).Read(0xc0000b9688, {0xc0003e2000, 0x1300, 0x1300})
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:533 +0x1ee
+net.(*netFD).Read(0xc0000b9688, {0xc0003e2000?, 0xc0003e2000?, 0x5?})
+	C:/Program Files/Go/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc00010a120, {0xc0003e2000?, 0x16ddfcf0fa8?, 0x16d9a850ed0?})
+	C:/Program Files/Go/src/net/net.go:196 +0x45
+crypto/tls.(*atLeastReader).Read(0xc0001385b8, {0xc0003e2000?, 0xa?, 0x1a0?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:816 +0x3b
+bytes.(*Buffer).ReadFrom(0xc00037a2a8, {0x7ff7a2721180, 0xc0001385b8})
+	C:/Program Files/Go/src/bytes/buffer.go:217 +0x98
+crypto/tls.(*Conn).readFromUntil(0xc00037a008, {0x16de003b0a8, 0xc00010a120}, 0x7ff7a1c013f4?)
+	C:/Program Files/Go/src/crypto/tls/conn.go:838 +0xde
+crypto/tls.(*Conn).readRecordOrCCS(0xc00037a008, 0x0)
+	C:/Program Files/Go/src/crypto/tls/conn.go:627 +0x3db
+crypto/tls.(*Conn).readRecord(...)
+	C:/Program Files/Go/src/crypto/tls/conn.go:589
+crypto/tls.(*Conn).Read(0xc00037a008, {0xc000359000, 0x1000, 0xc00031c300?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:1392 +0x145
+net/http.(*persistConn).Read(0xc0002dc7e0, {0xc000359000?, 0x7ff7a1e89ba5?, 0x7ff7a271f8a0?})
+	C:/Program Files/Go/src/net/http/transport.go:2125 +0x47
+bufio.(*Reader).fill(0xc000121ec0)
+	C:/Program Files/Go/src/bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc000121ec0, 0x1)
+	C:/Program Files/Go/src/bufio/bufio.go:152 +0x53
+net/http.(*persistConn).readLoop(0xc0002dc7e0)
+	C:/Program Files/Go/src/net/http/transport.go:2278 +0x172
+created by net/http.(*Transport).dialConn in goroutine 51
+	C:/Program Files/Go/src/net/http/transport.go:1947 +0x174f
+
+goroutine 56 [select]:
+net/http.(*persistConn).writeLoop(0xc0002dc7e0)
+	C:/Program Files/Go/src/net/http/transport.go:2600 +0xe7
+created by net/http.(*Transport).dialConn in goroutine 51
+	C:/Program Files/Go/src/net/http/transport.go:1948 +0x17a5
+
+goroutine 64 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb6000, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x2b4?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x2b4?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc000404f20, 0x7ff7a2629e20)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).Read(0xc000404f08, {0xc0003e3300, 0x1300, 0x1300})
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:533 +0x1ee
+net.(*netFD).Read(0xc000404f08, {0xc0003e3300?, 0xc0003e3300?, 0x5?})
+	C:/Program Files/Go/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc00010a230, {0xc0003e3300?, 0x16d9a85a040?, 0x16d9a8505a0?})
+	C:/Program Files/Go/src/net/net.go:196 +0x45
+crypto/tls.(*atLeastReader).Read(0xc0000097a0, {0xc0003e3300?, 0x120a?, 0x7ff7a1bdf4d6?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:816 +0x3b
+bytes.(*Buffer).ReadFrom(0xc00037a628, {0x7ff7a2721180, 0xc0000097a0})
+	C:/Program Files/Go/src/bytes/buffer.go:217 +0x98
+crypto/tls.(*Conn).readFromUntil(0xc00037a388, {0x16de003b0a8, 0xc00010a230}, 0x7ff7a1c013f4?)
+	C:/Program Files/Go/src/crypto/tls/conn.go:838 +0xde
+crypto/tls.(*Conn).readRecordOrCCS(0xc00037a388, 0x0)
+	C:/Program Files/Go/src/crypto/tls/conn.go:627 +0x3db
+crypto/tls.(*Conn).readRecord(...)
+	C:/Program Files/Go/src/crypto/tls/conn.go:589
+crypto/tls.(*Conn).Read(0xc00037a388, {0xc00210b000, 0x1000, 0xc0001ab110?})
+	C:/Program Files/Go/src/crypto/tls/conn.go:1392 +0x145
+net/http.(*persistConn).Read(0xc0020fc7e0, {0xc00210b000?, 0x7ff7a1e89ba5?, 0x7ff7a271f8a0?})
+	C:/Program Files/Go/src/net/http/transport.go:2125 +0x47
+bufio.(*Reader).fill(0xc00043fe00)
+	C:/Program Files/Go/src/bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc00043fe00, 0x1)
+	C:/Program Files/Go/src/bufio/bufio.go:152 +0x53
+net/http.(*persistConn).readLoop(0xc0020fc7e0)
+	C:/Program Files/Go/src/net/http/transport.go:2278 +0x172
+created by net/http.(*Transport).dialConn in goroutine 60
+	C:/Program Files/Go/src/net/http/transport.go:1947 +0x174f
+
+goroutine 65 [select]:
+net/http.(*persistConn).writeLoop(0xc0020fc7e0)
+	C:/Program Files/Go/src/net/http/transport.go:2600 +0xe7
+created by net/http.(*Transport).dialConn in goroutine 60
+	C:/Program Files/Go/src/net/http/transport.go:1948 +0x17a5
+
+goroutine 75 [IO wait]:
+internal/poll.runtime_pollWait(0x16ddfcb5e00, 0x72)
+	C:/Program Files/Go/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x268?, 0x7ff7a1bcc4e6?, 0x0)
+	C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.waitIO(0x7ff7a1c3704c?)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:187 +0x65
+internal/poll.execIO(0xc00057a2a0, 0x7ff7a2629e20)
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:240 +0x13a
+internal/poll.(*FD).Read(0xc00057a288, {0xc00012b5a1, 0x1, 0x1})
+	C:/Program Files/Go/src/internal/poll/fd_windows.go:533 +0x1ee
+net.(*netFD).Read(0xc00057a288, {0xc00012b5a1?, 0x0?, 0x0?})
+	C:/Program Files/Go/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc000306170, {0xc00012b5a1?, 0x0?, 0x0?})
+	C:/Program Files/Go/src/net/net.go:196 +0x45
+net/http.(*connReader).backgroundRead(0xc00012b580)
+	C:/Program Files/Go/src/net/http/server.go:702 +0x33
+created by net/http.(*connReader).startBackgroundRead in goroutine 23
+	C:/Program Files/Go/src/net/http/server.go:698 +0xb6

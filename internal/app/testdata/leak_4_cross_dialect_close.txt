@@ -1,0 +1,36 @@
+好的"key": "value"<tool_call>{"name": "get_weather"}</tool_call>工具调用说明
+```json
+{"action": "read_file", "path": "~/fK.txt"}
+```
+【1†source】工具调用说明
+```json
+{"action": "read_file", "path": "~/fF.txt"}
+```
+天气查询工具调用说明<lang>zh-CN</lang><tool_call>{"name": "get_weather"}</tool_call>思考过程
+```json
+{"action": "read_file", "path": "~/fQ.txt"}
+```
+好的那么天气查询
+```json
+{"action": "read_file", "path": "~/fW.txt"}
+```
+那么段落内容文件读取"key": "value"<tool_call>{"name": "get_weather"}</tool_call>好的
+```json
+{"action": "read_file", "path": "~/fU.txt"}
+```
+段落内容
+```json
+{"action": "read_file", "path": "~/fZ.txt"}
+```
+天气查询好的
+```json
+{"action": "read_file", "path": "~/fJ.txt"}
+```
+工具调用说明"key": "value"<lang>zh-CN</lang>{}
+```json
+{"action": "read_file", "path": "~/fL.txt"}
+```
+工具调用说明<tool_call>{"name": "get_weather"}</tool_call><tool_call>{"name": "get_weather"}</tool_call>段落内容<lang>zh-CN</lang>
+```json
+{"action": "read_file", "path": "~/fN.txt"}
+```

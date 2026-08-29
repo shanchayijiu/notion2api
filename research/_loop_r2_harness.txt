@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"grok-4.5","query_source":"sdk"}
+**1. 閫愰」鍒ゆ柇淇鏄惁鍏抽棴瀵瑰簲婕忔礊**
+
+- **浠嶆寕姝?*锛氬凡瑙ｅ喅銆俙request_dispatch.go:467-469`锛圧unPromptWithAccountPool锛夊拰`650-660`锛圵ithSink锛夋槑纭妸 `timeout` 灏侀《鍒?`accountDispatchTotalBudgetSec=60s`锛岄槻姝?N脳榛戞礊銆俙runPromptWithAccountPoolWithSink` 涔熷悓姝ャ€?- **婕忓垏**锛氬凡瑙ｅ喅銆俙request_dispatch.go:621-625` 鍜?`830-834` 璺緞涓?`errors.Is(err, errAccountStarved)` 鐩存帴缃?`retryable=false` 骞舵棩蹇楋紝杩涘叆 `markAccountDispatchFailure` 鍐峰嵈銆俙notion_client.go:4159` / `4229`锛圧unPrompt / RunPromptStream锛夊湪 `parseErr==nil && !parsed.HasAgentInference` 鏃剁洿鎺ヨ繑鍥?`errAccountStarved`锛岄潪 retryable銆?- **璇潃濂藉彿**锛氬凡瑙ｅ喅銆俙account_pool.go:130-131`锛坢arkAccountDispatchSuccess锛変粛缃?`ConsecutiveFailures=0`銆乣CooldownUntil=""`锛沗notion_client.go:4159` 鍒ゅ畾鏉′欢涓ユ牸涓?`parseErr==nil && !HasAgentInference`锛屽幓鎺変簡鈥滄棤鏂囨湰鈥濆浣欐潯浠躲€?- **鍏ㄥ憳鍐峰嵈/鍗曡处鍙锋湭瀹氫箟**锛氬凡瑙ｅ喅銆俙request_dispatch.go:498-511`锛堝拰 WithSink 689-702锛夊姞鈥滃崐寮€鎺㈡祴鈥濓細`len(candidates)==0` 鏃舵寜 `accountCooldownExpiry` 鏈€鏃╄€呮斁琛屼竴娆°€俙account_pool.go:68-70` 浠嶆敮鎸?`CooldownUntil=""` 瑙嗕负鏃犲喎鍗淬€?- **榛戞礊妫€娴嬭秴鏃惰繃澶?*锛氬凡瑙ｅ喅銆俙notion_client.go:491`锛坅ccountSyncBlackholeTimeout=8s锛夈€乣494`锛坅ccountPollBlackholeTimeout=20s锛夊凡鏀剁揣锛宒ispatch 60s 棰勭畻涔熺洿鎺ヤ娇鐢ㄣ€?
+**2. 鍓╀綑 P0 婕忔礊锛?*
+
+鏃犮€傛牳蹇冩満鍒跺凡闂幆锛氫笂娓告爣璁?榛戞礊 鈫?dispatch 60s 棰勭畻鍐呭揩閫熷け璐?鈫?鍗婂紑鎺㈡祴鏀捐鏈€鏃╁喎鍗磋处鍙?鈫?鍒囦笅涓€涓€?
+**3. 鏈€缁堝垽瀹?*
+
+鑳借揪鎴愩€屼笂娓告爣璁?榛戞礊 鈫?鏈€蹇?~鏁扮蹇€熷け璐?鈫?鑷姩鍒囦笅涓€涓处鍙枫€嶃€傜洰鍓嶅凡鐢熶骇鍙敤锛堟棤鍓╀綑 P0 鍙ｅ瓙锛夈€傝繕宸?1-3 浠朵簨锛? 
+1. `account_pool.go:137` `computeAccountCooldown` 鍐峰嵈鍊嶆暟锛?min 鍩虹锛夊鍗曡处鍙锋槸鍚﹁繃闀匡紙寤鸿鍔?`max(5s, wait)` 淇濆簳锛夛紱  
+2. `request_dispatch.go:559` `isDispatchContextAbort` 鏈鐩栨墍鏈?upstream 鐬柇鍦烘櫙锛? 
+3. `notion_client.go:4159` 鍒ゅ畾 `HasAgentInference` 閫昏緫闇€棰濆鍥炲綊娴嬭瘯锛堢‘璁ゆ垚鍔熸祦浠嶈蛋锛夈€?
+锛堝鏌ョ粨璁猴紝鏃犱唬鐮佹敼鍔級

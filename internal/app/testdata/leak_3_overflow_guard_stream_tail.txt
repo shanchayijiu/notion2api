@@ -1,0 +1,68 @@
+文件读取工具调用说明
+```json
+{"action": "read_file", "path": "~/fY.txt"}
+```
+思考过程
+```json
+{"action": "read_file", "path": "~/fX.txt"}
+```
+<tool_call>{"name": "get_weather"}</tool_call>天气查询
+```json
+{"action": "read_file", "path": "~/fT.txt"}
+```
+文件读取工具调用说明
+```json
+{"action": "read_file", "path": "~/fK.txt"}
+```
+段落内容天气查询好的
+```json
+{"action": "read_file", "path": "~/fD.txt"}
+```
+代码示例
+```json
+{"action": "read_file", "path": "~/fG.txt"}
+```
+工具调用说明
+```json
+{"action": "read_file", "path": "~/fZ.txt"}
+```
+<lang>zh-CN</lang>工具调用说明
+```json
+{"action": "read_file", "path": "~/fA.txt"}
+```
+天气查询好的段落内容
+```json
+{"action": "read_file", "path": "~/fM.txt"}
+```
+那么工具调用说明
+```json
+{"action": "read_file", "path": "~/fP.txt"}
+```
+<tool_call>{"name": "get_weather"}</tool_call>段落内容
+```json
+{"action": "read_file", "path": "~/fN.txt"}
+```
+文件读取
+```json
+{"action": "read_file", "path": "~/fH.txt"}
+```
+工具调用说明
+```json
+{"action": "read_file", "path": "~/fB.txt"}
+```
+<tool_call>{"name": "get_weather"}</tool_call>天气查询
+```json
+{"action": "read_file", "path": "~/fV.txt"}
+```
+好的工具调用说明
+```json
+{"action": "read_file", "path": "~/fQ.txt"}
+```
+段落内容
+```json
+{"action": "read_file", "path": "~/fU.txt"}
+```
+工具调用说明
+```json
+{"action": "read_file", "path": "~/fW.txt"}
+```

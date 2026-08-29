@@ -1,0 +1,355 @@
+{"type":"patch-start","data":{"s":[{"id":"3c68c1ed-b9f1-81a7-a953-00aa41b03286","type":"agent-instruction-state","owner":"regular","root":{"type":"none"},"sources":[],"selectedSkillPageIds":[],"trackedInstructionTreePages":[]}]},"version":1}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-819b-a922-00aa0f0a1cad","type":"agent-turn-full-record-map"}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-810a-950c-00aae1b65f0d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016869,"input":{"function":"connections.fs.readFiles","args":{"files":["modules/fs/AGENTS.md","modules/fs/index.ts","modules/helpdocs/AGENTS.md","modules/mcpServer/AGENTS.md","modules/mcpServer/index.ts","modules/notion/AGENTS.md","modules/notion/databases/AGENTS.preview.md","modules/notion/databases/data-source-sqlite-tables.preview.md","modules/notion/databases/minified/index.ts","modules/notion/databases/minified/query.ts","modules/notion/edit-diffs.md","modules/notion/minified/index.ts","modules/notion/minified/notion-markdown.md","modules/notion/pages/AGENTS.preview.md","modules/notion/pages/index.ts","modules/notion/pages/page-content-spec.preview.md","modules/notion/renderData/minified/index.ts","modules/search/minified/AGENTS.md","modules/search/minified/index.ts","modules/system/AGENTS.md","modules/system/index.ts","modules/web/AGENTS.md","modules/web/index.ts"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"modules/fs/AGENTS.md\"},{\"path\":\"modules/fs/index.ts\"},{\"path\":\"modules/helpdocs/AGENTS.md\"},{\"path\":\"modules/mcpServer/AGENTS.md\"},{\"path\":\"modules/mcpServer/index.ts\"},{\"path\":\"modules/notion/AGENTS.md\"},{\"path\":\"modules/notion/databases/AGENTS.preview.md\"},{\"path\":\"modules/notion/databases/data-source-sqlite-tables.preview.md\"},{\"path\":\"modules/notion/databases/minified/index.ts\"},{\"path\":\"modules/notion/databases/minified/query.ts\"},{\"path\":\"modules/notion/edit-diffs.md\"},{\"path\":\"modules/notion/minified/index.ts\"},{\"path\":\"modules/notion/minified/notion-markdown.md\"},{\"path\":\"modules/notion/pages/AGENTS.preview.md\"},{\"path\":\"modules/notion/pages/index.ts\"},{\"path\":\"modules/notion/pages/page-content-spec.preview.md\"},{\"path\":\"modules/notion/renderData/minified/index.ts\"},{\"path\":\"modules/search/minified/AGENTS.md\"},{\"path\":\"modules/search/minified/index.ts\"},{\"path\":\"modules/system/AGENTS.md\"},{\"path\":\"modules/system/index.ts\"},{\"path\":\"modules/web/AGENTS.md\"},{\"path\":\"modules/web/index.ts\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"core_docs","durationMs":20,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8189-8fd7-00afb05f5778","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.fs.readFiles","args":{"files":["connections.ts","modules/skills/minified/AGENTS.md"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"connections.ts\"},{\"path\":\"modules/skills/minified/AGENTS.md\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"user_docs","durationMs":19,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8151-beb1-00afa2267aae","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-813e-b85c-00aabc528d8d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.notion.loadUser","args":{"url":"user://3c6d872b-594c-8152-8e46-00023d46e9e7"}},"state":"applied","result":{"output":"{\"url\":\"user://3c6d872b-594c-8152-8e46-00023d46e9e7\",\"email\":\"mt6rrdq5mb9r@imageeditgpt.com\",\"name\":\"tprobe\"}","headerLabel":[["Loaded user "],["‣",[["u","3c6d872b-594c-8152-8e46-00023d46e9e7"]]]]},"moduleInfo":{"id":"8042928b-82cc-4d0c-81d4-6f3a7b8a8988","name":"notion-module","type":"notion"},"finishedAt":1787564016895,"threadOperations":[],"autoLoadPhase":"context_urls","durationMs":25,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-813a-ad67-00af85c21730","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-8009-b579-00aa72030b70","type":"config","value":{"type":"workflow","enableAgentAutomations":true,"enableAgentIntegrations":true,"enableCustomAgents":true,"enableExperimentalIntegrations":false,"enableScriptAgent":true,"enableScriptAgentAdvanced":false,"enableScriptAgentSearchConnectorsInCustomAgent":false,"enableScriptAgentGoogleDriveInCustomAgent":false,"enableScriptAgentGoogleDriveOAuthInCustomAgent":false,"enableScriptAgentSlack":true,"enableScriptAgentMcpServers":true,"enableAgentDiffs":true,"enableCsvAttachmentSupport":true,"showDatabaseAgentsDiscoverability":false,"enableAgentThreadTools":false,"enableCrdtOperations":false,"enableAgentCardCustomization":true,"enableSystemPromptAsPage":false,"enableUserSessionContext":false,"enableLargeToolResultComputerOffload":false,"enableScriptAgentGtm":false,"enableComputer":false,"enableCustomAgentCreateGuidanceV2":true,"enableSoftwareFactoryPage":false,"enableAgentGenerateImage":false,"enableQueryCalendar":false,"enableQueryMail":false,"enableMailExplicitToolCalls":true,"enableMailNotificationPreferences":false,"enableMailAgentMultiProviderSupport":true,"enableNotionMailDeprecated":false,"enableWebResearch":false,"useRulePrioritization":true,"availableConnectors":[],"searchScopes":[{"type":"everything"}],"useWebSearch":true,"isHipaa":false,"internetAccess":false,"manageWorkers":false,"useReadOnlyMode":false,"writerMode":false,"modelFromUser":false,"isCustomAgentBuilder":false,"isCustomAgentCreate":false,"isAgentResearchRequest":false,"useCustomAgentDraft":false,"enableMarkdownVNext":false,"enableSuggestedEditsTools":true,"enableAgentSkillsV2":true,"enableSkillsInCustomAgents":false,"updatePageStaleViewGuardEnabled":false,"enableUpdatePageOrderUpdates":true,"enableAgentSupportPropertyReorder":true,"enableAgentAskSurvey":true,"databaseAgentConfigMode":false,"isOnboardingAgent":false,"isMobile":false,"isCustomAgent":false,"useContextualCoreDocsAutoLoad":false,"useDocPreviewsForCoreAutoLoad":true,"isThreadStartedByAdmin":true,"canAccessAllAgentThreads":false,"isSlackGridExpandedToolsEligible":true,"model":"oatmeal-cookie"}}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd","type":"title","value":"When trains meet calculation","icon":"/icons/chat_lightgray.svg"}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/-","v":{"id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","type":"agent-inference","value":[{"type":"thinking","content":"**Calculating meeting time**\n\nI","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","modelProvider":"openai","notionModelName":"oatmeal-cookie","startedAt":1787564018724}],"traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016908,"previousAttemptValues":[]}}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" don't"},{"o":"r","p":"/s/7/value/0/anthropicFallbackBoundary"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" need"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" any"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" tools"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" for"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" this"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" task"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":";"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" it"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"’s"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" a"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" simple"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" calculation"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" I"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" want"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" to"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" figure"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" out"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" meeting"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" time"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" based"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" on"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" distances"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" and"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" speed"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" If"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" it's"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" slower"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" leaves"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" that"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" take"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" place"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" after"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" 4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" I"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" can"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" set"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" up"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" equation"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" based"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" on"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" distance"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":":"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"times"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" ("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" +"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" ="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" 90"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"times"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":")."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" After"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" simplifying"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" I"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" find"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" that"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" ="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" 2"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" hours"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" So"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" if"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" we"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" meet"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" at"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" 6"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" that"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" works"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":" perfectly"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"!"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/0/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"a","p":"/s/7/value/-","v":{"type":"thinking","id":"rs_0f860966f9333505016a8c0ff1730487d0b3119fd122edc04d","content":"","encryptedContent":"gAAAAABqjA_zs4rdeqZj7d4n2qsfBTGS3J80okD5_IfN5hGpkuussu2bz34G79o-maGsuhW4fCAQo-rJY4uT_ajwCuUA38IWKiRMg9XYBzwdXj_5e5RwhYvTmJYIV42kNtTFYzDKHuCGo97UVY-ala1718gtY_P2MywNSrfUgoqD4Asp6hg7kfQCeIUxoI9fjWAWFPEC0xUGx1Qv8NDgTGY8XKiH-dAU2kNhHIGmbsFi4PCSjvS9C028eL-_KwsRX5WAi7x8Fd78xxPZicTxEuoUVeJw4Qm66MNfpE43CVVs-ZzyDwbceelIB6_yUlCCzB8fLNyxohRWFqvrkl_AwsPm7SLjJnOmBgJvMTRb8HnQL7wM7x_3nXyz5y51paI7W11CUos1QJ2pEW7_W6b1-4IdOt0TAIT1IFzZ-HWiW4HsUXsrS-5jmTcbSUMBVPhHACic12nEzSdNhsRNokmXY_bPZxer222blYOoBiUCsuHUE_jnqY9dLqcL4UJfsL1slgHOrmrMa1qfdo072Pmo3fkh-R0B-6Gr18GQsSKyAi3yG2ohoJGYUGKMdxdFwR3AieXLSJzy53R_YMHZlSEHsC-vXAvSFilS1mvPHhC69KaEhWN5x2odfTI7AvsbOhaekYnU_hzyvdNnhzvPvPBDqqNZcCyR5R4PVCK7LIW2YWafRpIyg_a5S6bLcChu8lFmO0adUxViyhLS25XHRj0oIwKZJRFgnOZ2mjHA3WY2Y6c4sooAH31_OK8c-JqpRURmnxy84ApicwkAdOa1f80PAiFFmxmK7BXKrdpCyPFVYz_in_eYg7hBZcLwNvlINEusOYIOyvnxqlRKts7MxtXda_2vghmUvK37_q_LrNHVrSP8vt4NHJ8fA6ygvboaVk6vQKVTkr61OOx_ZN08YKsVXmIs5-uy2pEtVVdbQRNxrNfpHHmFgPqT1ak4t3bfN58Pz4ELqZ7HWR47Y0YI-zf-U5YgpUbztPbGZ7lBx9pdtEHp6PDiA9JSJiRl71XYNf65biU0Y6P2PJOhtpGFfwCYNEWvNwlGO7XH-xSTBQkQ67j5do8kfgovmAZoUEJVPnY4NyeGJ8C_bNXPzaGK0Rw28sBBnBtLkqXqDJq_9QRkbr1DLrKaPdFnUyWi36tv9LYOnEJQ2mcne0ebNif2J4wlMvXlumPGpJQyIRmtCtFHN2aGZqLq99kYO1fEdgXosXFBoCo2aRPgwvpTs68hQxnALgiXVcZ46qPHD44VZTknlUIyF6UyQWnJ6ihSooBD3nb7dhz0S6aq2ntY5zvwp5LrlnaiRCZl9UUNYN8omXhV1dczPl0bbw-VxlTO9IDviMARfLch5-ZrQcleHgm49-RykSVtIFwR7v858X1vNYXeNStwrf4SQ5419NtGs37xms10E4mN06NRuFhufMk4clRWqsSQvV_drKkbfLr8AM36kKYqnYvvNHrgNiady1uPXEiFSvMcMuDOBGhp","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","modelProvider":"openai","notionModelName":"oatmeal-cookie","startedAt":1787564019712}}]}
+{"type":"patch","v":[{"o":"a","p":"/s/7/value/-","v":{"type":"text","content":"Let"}}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" number"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" of"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" hours"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"after"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":":"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"00"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" until"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" they"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" meet"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":".\n\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"Distance"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" traveled"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" by"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" mph"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" train"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"left"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" at"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"3"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"):"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" By"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" it"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" already"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" has"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" a"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"-hour"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" head"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" start"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" so"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" total"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" time"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" traveled"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" when"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" they"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" meet"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" is"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"+t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" hours"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" d"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"_"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"+t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"2"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"Distance"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" traveled"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" by"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" the"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"90"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" mph"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" train"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"left"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" at"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"):"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" It"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" travels"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" for"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" hours"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" d"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"_"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"2"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"90"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"3"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"Set"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" distances"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" equal"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" ("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"same"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" station"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" same"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" direction"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" meeting"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" means"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" same"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" position"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"):"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"1"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"+t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"90"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"+"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"90"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"60"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"30"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"[\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" t"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"="}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"2"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"]\n\n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"Convert"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" back"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" to"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" a"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" clock"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" time"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":":**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"  \n"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"They"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" meet"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" \\("}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"2"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"\\"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":")"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" hours"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" after"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" "}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"4"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":":"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"00"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":","}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" i"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":".e"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"."}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" at"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" **"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"6"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":":"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"00"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":" PM"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"**"}]}
+{"type":"patch","v":[{"o":"x","p":"/s/7/value/2/content","v":"."}]}
+{"type":"patch","v":[{"o":"a","p":"/s/7/finishedAt","v":1787564021667},{"o":"a","p":"/s/7/inputTokens","v":20625},{"o":"a","p":"/s/7/outputTokens","v":312},{"o":"a","p":"/s/7/cachedTokensRead","v":19840},{"o":"a","p":"/s/7/cachedTokensCreated","v":0},{"o":"a","p":"/s/7/serverTimeToSubmitLlmMs","v":27.402929000090808},{"o":"a","p":"/s/7/serverTimeToFirstTokenMs","v":1804.2356589999981},{"o":"a","p":"/s/7/serverPostSubmitTimeToFirstTokenMs","v":1776.8327299999073},{"o":"a","p":"/s/7/maxContextTokens","v":400000},{"o":"a","p":"/s/7/maxInputTokens","v":272000},{"o":"a","p":"/s/7/model","v":"oatmeal-cookie"},{"o":"a","p":"/s/7/isModelFailover"}]}
+{"type":"patch","v":[{"o":"a","p":"/s/1/recordVersions","v":[]}]}
+{"type":"record-map","recordMap":{"__version__":3,"thread":{"3c68c1ed-b9f1-80b1-b956-00a94d30e76b":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","version":64,"space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","messages":["3c68c1ed-b9f1-8009-b579-00aa72030b70","3c68c1ed-b9f1-80d6-a128-00aa0b4b9ebe","3c68c1ed-b9f1-8035-88b8-00aa258ceeb9","3c68c1ed-b9f1-81a7-a953-00aa41b03286","3c68c1ed-b9f1-819b-a922-00aa0f0a1cad","3c68c1ed-b9f1-810a-950c-00aae1b65f0d","3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f","3c68c1ed-b9f1-813e-b85c-00aabc528d8d","3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd","3c68c1ed-b9f1-814a-927f-00aa665fd949"],"parent_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","parent_table":"space","created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","created_time":1787564016563,"data":{"icon":"/icons/chat_lightgray.svg","title":"When trains meet calculation","usage_summary":{"credits_by_type_unit":{"basic_ai_credits":1,"exempt_ai_credits":0,"premium_ai_credits":0,"preview_ai_credits":0},"input_tokens":22005,"output_tokens":332,"cached_input_tokens_read":20992,"cached_input_tokens_created":0,"completion_count":2,"agent_inference_count":1,"last_updated_time":1787564021792},"ai_credential_binding":{"keySource":"notion_managed"},"last_turn_outcome":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","status":"completed","final_step_id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","step_count":8,"completed_time":1787564021792},"turn_outcomes":{"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","status":"completed","final_step_id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","step_count":8,"completed_time":1787564021792}}},"created_source":"ai_module","alive":true,"type":"workflow","updated_time":1787564021792,"updated_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","updated_by_table":"notion_user"},"role":"editor"}}},"thread_message":{"3c68c1ed-b9f1-8009-b579-00aa72030b70":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-8009-b579-00aa72030b70","version":2,"space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","step":{"id":"3c68c1ed-b9f1-8009-b579-00aa72030b70","type":"config","value":{"type":"workflow","enableAgentAutomations":true,"enableAgentIntegrations":true,"enableCustomAgents":true,"enableExperimentalIntegrations":false,"enableScriptAgent":true,"enableScriptAgentAdvanced":false,"enableScriptAgentSearchConnectorsInCustomAgent":false,"enableScriptAgentGoogleDriveInCustomAgent":false,"enableScriptAgentGoogleDriveOAuthInCustomAgent":false,"enableScriptAgentSlack":true,"enableScriptAgentMcpServers":true,"enableAgentDiffs":true,"enableCsvAttachmentSupport":true,"showDatabaseAgentsDiscoverability":false,"enableAgentThreadTools":false,"enableCrdtOperations":false,"enableAgentCardCustomization":true,"enableSystemPromptAsPage":false,"enableUserSessionContext":false,"enableLargeToolResultComputerOffload":false,"enableScriptAgentGtm":false,"enableComputer":false,"enableCustomAgentCreateGuidanceV2":true,"enableSoftwareFactoryPage":false,"enableAgentGenerateImage":false,"enableQueryCalendar":false,"enableQueryMail":false,"enableMailExplicitToolCalls":true,"enableMailNotificationPreferences":false,"enableMailAgentMultiProviderSupport":true,"enableNotionMailDeprecated":false,"enableWebResearch":false,"useRulePrioritization":true,"searchScopes":[{"type":"everything"}],"useWebSearch":true,"isHipaa":false,"internetAccess":false,"manageWorkers":false,"useReadOnlyMode":false,"writerMode":false,"modelFromUser":false,"isCustomAgentBuilder":false,"isCustomAgentCreate":false,"isAgentResearchRequest":false,"useCustomAgentDraft":false,"enableMarkdownVNext":false,"enableSuggestedEditsTools":true,"enableAgentSkillsV2":true,"enableSkillsInCustomAgents":false,"updatePageStaleViewGuardEnabled":false,"enableUpdatePageOrderUpdates":true,"enableAgentSupportPropertyReorder":true,"enableAgentAskSurvey":true,"databaseAgentConfigMode":false,"isOnboardingAgent":false,"isMobile":false,"isCustomAgent":false,"useContextualCoreDocsAutoLoad":false,"useDocPreviewsForCoreAutoLoad":true,"isThreadStartedByAdmin":true,"canAccessAllAgentThreads":false,"isSlackGridExpandedToolsEligible":true,"model":"oatmeal-cookie"}},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","created_time":1787564016563,"data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-80d6-a128-00aa0b4b9ebe":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-80d6-a128-00aa0b4b9ebe","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","step":{"id":"3c68c1ed-b9f1-80d6-a128-00aa0b4b9ebe","type":"context","value":{"timezone":"Asia/Shanghai","userName":"tprobe","userId":"3c6d872b-594c-8152-8e46-00023d46e9e7","userEmail":"mt6rrdq5mb9r@imageeditgpt.com","spaceName":"mskgxcku2y29’s Space","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","spaceViewId":"3c68c1ed-b9f1-814d-880e-000608aed41e","currentDatetime":"2026-08-24T17:33:45.299+08:00","surface":"ai_module"}},"created_time":1787564016563,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","version":1},"role":"editor"}},"3c68c1ed-b9f1-8035-88b8-00aa258ceeb9":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-8035-88b8-00aa258ceeb9","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","step":{"id":"3c68c1ed-b9f1-8035-88b8-00aa258ceeb9","type":"user","userId":"3c6d872b-594c-8152-8e46-00023d46e9e7","value":[["Two trains leave the same station at 3pm (60mph) and 4pm (90mph). When do they meet? Think step by step through the full calculation."]],"createdAt":"2026-08-24T17:33:45.298+08:00"},"created_time":1787564016563,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","version":1},"role":"editor"}},"3c68c1ed-b9f1-81a7-a953-00aa41b03286":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-81a7-a953-00aa41b03286","version":1,"step":{"id":"3c68c1ed-b9f1-81a7-a953-00aa41b03286","type":"agent-instruction-state","owner":"regular","root":{"type":"none"}},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","created_time":1787564016741,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-819b-a922-00aa0f0a1cad":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-819b-a922-00aa0f0a1cad","version":2,"space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","step":{"id":"3c68c1ed-b9f1-819b-a922-00aa0f0a1cad","type":"agent-turn-full-record-map"},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","created_time":1787564016868,"data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","completed":true,"completed_time":1787564021792}},"role":"editor"}},"3c68c1ed-b9f1-810a-950c-00aae1b65f0d":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-810a-950c-00aae1b65f0d","version":1,"step":{"id":"3c68c1ed-b9f1-810a-950c-00aae1b65f0d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016869,"input":{"function":"connections.fs.readFiles","args":{"files":["modules/fs/AGENTS.md","modules/fs/index.ts","modules/helpdocs/AGENTS.md","modules/mcpServer/AGENTS.md","modules/mcpServer/index.ts","modules/notion/AGENTS.md","modules/notion/databases/AGENTS.preview.md","modules/notion/databases/data-source-sqlite-tables.preview.md","modules/notion/databases/minified/index.ts","modules/notion/databases/minified/query.ts","modules/notion/edit-diffs.md","modules/notion/minified/index.ts","modules/notion/minified/notion-markdown.md","modules/notion/pages/AGENTS.preview.md","modules/notion/pages/index.ts","modules/notion/pages/page-content-spec.preview.md","modules/notion/renderData/minified/index.ts","modules/search/minified/AGENTS.md","modules/search/minified/index.ts","modules/system/AGENTS.md","modules/system/index.ts","modules/web/AGENTS.md","modules/web/index.ts"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"modules/fs/AGENTS.md\"},{\"path\":\"modules/fs/index.ts\"},{\"path\":\"modules/helpdocs/AGENTS.md\"},{\"path\":\"modules/mcpServer/AGENTS.md\"},{\"path\":\"modules/mcpServer/index.ts\"},{\"path\":\"modules/notion/AGENTS.md\"},{\"path\":\"modules/notion/databases/AGENTS.preview.md\"},{\"path\":\"modules/notion/databases/data-source-sqlite-tables.preview.md\"},{\"path\":\"modules/notion/databases/minified/index.ts\"},{\"path\":\"modules/notion/databases/minified/query.ts\"},{\"path\":\"modules/notion/edit-diffs.md\"},{\"path\":\"modules/notion/minified/index.ts\"},{\"path\":\"modules/notion/minified/notion-markdown.md\"},{\"path\":\"modules/notion/pages/AGENTS.preview.md\"},{\"path\":\"modules/notion/pages/index.ts\"},{\"path\":\"modules/notion/pages/page-content-spec.preview.md\"},{\"path\":\"modules/notion/renderData/minified/index.ts\"},{\"path\":\"modules/search/minified/AGENTS.md\"},{\"path\":\"modules/search/minified/index.ts\"},{\"path\":\"modules/system/AGENTS.md\"},{\"path\":\"modules/system/index.ts\"},{\"path\":\"modules/web/AGENTS.md\"},{\"path\":\"modules/web/index.ts\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"core_docs","durationMs":20,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8189-8fd7-00afb05f5778","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","created_time":1787564017019,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f","version":1,"step":{"id":"3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.fs.readFiles","args":{"files":["connections.ts","modules/skills/minified/AGENTS.md"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"connections.ts\"},{\"path\":\"modules/skills/minified/AGENTS.md\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"user_docs","durationMs":19,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8151-beb1-00afa2267aae","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","created_time":1787564017019,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-813e-b85c-00aabc528d8d":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-813e-b85c-00aabc528d8d","version":1,"step":{"id":"3c68c1ed-b9f1-813e-b85c-00aabc528d8d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.notion.loadUser","args":{"url":"user://3c6d872b-594c-8152-8e46-00023d46e9e7"}},"state":"applied","result":{"output":"{\"url\":\"user://3c6d872b-594c-8152-8e46-00023d46e9e7\",\"email\":\"mt6rrdq5mb9r@imageeditgpt.com\",\"name\":\"tprobe\"}","headerLabel":[["Loaded user "],["‣",[["u","3c6d872b-594c-8152-8e46-00023d46e9e7"]]]]},"moduleInfo":{"id":"8042928b-82cc-4d0c-81d4-6f3a7b8a8988","name":"notion-module","type":"notion"},"finishedAt":1787564016895,"threadOperations":[],"autoLoadPhase":"context_urls","durationMs":25,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-813a-ad67-00af85c21730","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","created_time":1787564017019,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd","version":1,"step":{"id":"3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd","type":"title","value":"When trains meet calculation","icon":"/icons/chat_lightgray.svg"},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","created_time":1787564017673,"created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}},"3c68c1ed-b9f1-814a-927f-00aa665fd949":{"spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d","value":{"value":{"id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","version":10,"space_id":"f9d8c1ed-b9f1-8155-a056-0003764c935d","step":{"id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","type":"agent-inference","value":[{"type":"thinking","content":"**Calculating meeting time**\n\nI don't need any tools for this task; it’s a simple calculation. I want to figure out the meeting time based on the distances and speed. If it's slower leaves that take place after 4 PM, I can set up the equation based on distance: \\(60 \\times (1 + t) = 90 \\times t\\). After simplifying, I find that \\(t = 2\\) hours. So, if we meet at 6 PM, that works perfectly!\n","modelProvider":"openai","notionModelName":"oatmeal-cookie","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","startedAt":1787564018724,"finishedAt":1787564019745},{"type":"thinking","id":"rs_0f860966f9333505016a8c0ff1730487d0b3119fd122edc04d","content":"","encryptedContent":"gAAAAABqjA_zs4rdeqZj7d4n2qsfBTGS3J80okD5_IfN5hGpkuussu2bz34G79o-maGsuhW4fCAQo-rJY4uT_ajwCuUA38IWKiRMg9XYBzwdXj_5e5RwhYvTmJYIV42kNtTFYzDKHuCGo97UVY-ala1718gtY_P2MywNSrfUgoqD4Asp6hg7kfQCeIUxoI9fjWAWFPEC0xUGx1Qv8NDgTGY8XKiH-dAU2kNhHIGmbsFi4PCSjvS9C028eL-_KwsRX5WAi7x8Fd78xxPZicTxEuoUVeJw4Qm66MNfpE43CVVs-ZzyDwbceelIB6_yUlCCzB8fLNyxohRWFqvrkl_AwsPm7SLjJnOmBgJvMTRb8HnQL7wM7x_3nXyz5y51paI7W11CUos1QJ2pEW7_W6b1-4IdOt0TAIT1IFzZ-HWiW4HsUXsrS-5jmTcbSUMBVPhHACic12nEzSdNhsRNokmXY_bPZxer222blYOoBiUCsuHUE_jnqY9dLqcL4UJfsL1slgHOrmrMa1qfdo072Pmo3fkh-R0B-6Gr18GQsSKyAi3yG2ohoJGYUGKMdxdFwR3AieXLSJzy53R_YMHZlSEHsC-vXAvSFilS1mvPHhC69KaEhWN5x2odfTI7AvsbOhaekYnU_hzyvdNnhzvPvPBDqqNZcCyR5R4PVCK7LIW2YWafRpIyg_a5S6bLcChu8lFmO0adUxViyhLS25XHRj0oIwKZJRFgnOZ2mjHA3WY2Y6c4sooAH31_OK8c-JqpRURmnxy84ApicwkAdOa1f80PAiFFmxmK7BXKrdpCyPFVYz_in_eYg7hBZcLwNvlINEusOYIOyvnxqlRKts7MxtXda_2vghmUvK37_q_LrNHVrSP8vt4NHJ8fA6ygvboaVk6vQKVTkr61OOx_ZN08YKsVXmIs5-uy2pEtVVdbQRNxrNfpHHmFgPqT1ak4t3bfN58Pz4ELqZ7HWR47Y0YI-zf-U5YgpUbztPbGZ7lBx9pdtEHp6PDiA9JSJiRl71XYNf65biU0Y6P2PJOhtpGFfwCYNEWvNwlGO7XH-xSTBQkQ67j5do8kfgovmAZoUEJVPnY4NyeGJ8C_bNXPzaGK0Rw28sBBnBtLkqXqDJq_9QRkbr1DLrKaPdFnUyWi36tv9LYOnEJQ2mcne0ebNif2J4wlMvXlumPGpJQyIRmtCtFHN2aGZqLq99kYO1fEdgXosXFBoCo2aRPgwvpTs68hQxnALgiXVcZ46qPHD44VZTknlUIyF6UyQWnJ6ihSooBD3nb7dhz0S6aq2ntY5zvwp5LrlnaiRCZl9UUNYN8omXhV1dczPl0bbw-VxlTO9IDviMARfLch5-ZrQcleHgm49-RykSVtIFwR7v858X1vNYXeNStwrf4SQ5419NtGs37xms10E4mN06NRuFhufMk4clRWqsSQvV_drKkbfLr8AM36kKYqnYvvNHrgNiady1uPXEiFSvMcMuDOBGhp","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","modelProvider":"openai","notionModelName":"oatmeal-cookie","startedAt":1787564019712,"finishedAt":1787564019745},{"type":"text","content":"Let \\(t\\) = the number of hours **after 4:00 PM** until they meet.\n\n1) **Distance traveled by the 60 mph train (left at 3 PM):**  \n   By 4 PM it already has a 1-hour head start, so total time traveled when they meet is \\(1+t\\) hours.  \n   \\[\n   d_1 = 60(1+t)\n   \\]\n\n2) **Distance traveled by the 90 mph train (left at 4 PM):**  \n   It travels for \\(t\\) hours.  \n   \\[\n   d_2 = 90t\n   \\]\n\n3) **Set distances equal (same station, same direction, meeting means same position):**  \n   \\[\n   60(1+t)=90t\n   \\]\n   \\[\n   60+60t=90t\n   \\]\n   \\[\n   60=30t\n   \\]\n   \\[\n   t=2\n   \\]\n\n4) **Convert back to a clock time:**  \nThey meet \\(2\\) hours after 4:00 PM, i.e. at **6:00 PM**."}],"traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016908,"finishedAt":1787564021667,"inputTokens":20625,"outputTokens":312,"cachedTokensRead":19840,"cachedTokensCreated":0,"serverTimeToSubmitLlmMs":27.402929000090808,"serverTimeToFirstTokenMs":1804.2356589999981,"serverPostSubmitTimeToFirstTokenMs":1776.8327299999073,"maxContextTokens":400000,"maxInputTokens":272000,"model":"oatmeal-cookie"},"parent_id":"3c68c1ed-b9f1-80b1-b956-00a94d30e76b","parent_table":"thread","created_by_id":"3c6d872b-594c-8152-8e46-00023d46e9e7","created_by_table":"notion_user","created_time":1787564018724,"data":{"inference_id":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602"}},"role":"editor"}}}}}
+{"type":"patch-sync","version":1,"data":{"s":[{"id":"3c68c1ed-b9f1-81a7-a953-00aa41b03286","type":"agent-instruction-state","owner":"regular","root":{"type":"none"},"sources":[],"selectedSkillPageIds":[],"trackedInstructionTreePages":[]},{"id":"3c68c1ed-b9f1-819b-a922-00aa0f0a1cad","type":"agent-turn-full-record-map","recordVersions":[]},{"id":"3c68c1ed-b9f1-810a-950c-00aae1b65f0d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016869,"input":{"function":"connections.fs.readFiles","args":{"files":["modules/fs/AGENTS.md","modules/fs/index.ts","modules/helpdocs/AGENTS.md","modules/mcpServer/AGENTS.md","modules/mcpServer/index.ts","modules/notion/AGENTS.md","modules/notion/databases/AGENTS.preview.md","modules/notion/databases/data-source-sqlite-tables.preview.md","modules/notion/databases/minified/index.ts","modules/notion/databases/minified/query.ts","modules/notion/edit-diffs.md","modules/notion/minified/index.ts","modules/notion/minified/notion-markdown.md","modules/notion/pages/AGENTS.preview.md","modules/notion/pages/index.ts","modules/notion/pages/page-content-spec.preview.md","modules/notion/renderData/minified/index.ts","modules/search/minified/AGENTS.md","modules/search/minified/index.ts","modules/system/AGENTS.md","modules/system/index.ts","modules/web/AGENTS.md","modules/web/index.ts"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"modules/fs/AGENTS.md\"},{\"path\":\"modules/fs/index.ts\"},{\"path\":\"modules/helpdocs/AGENTS.md\"},{\"path\":\"modules/mcpServer/AGENTS.md\"},{\"path\":\"modules/mcpServer/index.ts\"},{\"path\":\"modules/notion/AGENTS.md\"},{\"path\":\"modules/notion/databases/AGENTS.preview.md\"},{\"path\":\"modules/notion/databases/data-source-sqlite-tables.preview.md\"},{\"path\":\"modules/notion/databases/minified/index.ts\"},{\"path\":\"modules/notion/databases/minified/query.ts\"},{\"path\":\"modules/notion/edit-diffs.md\"},{\"path\":\"modules/notion/minified/index.ts\"},{\"path\":\"modules/notion/minified/notion-markdown.md\"},{\"path\":\"modules/notion/pages/AGENTS.preview.md\"},{\"path\":\"modules/notion/pages/index.ts\"},{\"path\":\"modules/notion/pages/page-content-spec.preview.md\"},{\"path\":\"modules/notion/renderData/minified/index.ts\"},{\"path\":\"modules/search/minified/AGENTS.md\"},{\"path\":\"modules/search/minified/index.ts\"},{\"path\":\"modules/system/AGENTS.md\"},{\"path\":\"modules/system/index.ts\"},{\"path\":\"modules/web/AGENTS.md\"},{\"path\":\"modules/web/index.ts\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"core_docs","durationMs":20,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8189-8fd7-00afb05f5778","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},{"id":"3c68c1ed-b9f1-81ec-b39a-00aa85d63c3f","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.fs.readFiles","args":{"files":["connections.ts","modules/skills/minified/AGENTS.md"]}},"state":"applied","result":{"output":"{\"files\":[{\"path\":\"connections.ts\"},{\"path\":\"modules/skills/minified/AGENTS.md\"}]}","headerLabel":[["Loaded tools"]]},"moduleInfo":{"id":"bc98da72-0be3-4971-881b-6a3c951e0103","name":"fs-module","type":"fs"},"finishedAt":1787564016889,"threadOperations":[],"autoLoadPhase":"user_docs","durationMs":19,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-8151-beb1-00afa2267aae","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},{"id":"3c68c1ed-b9f1-813e-b85c-00aabc528d8d","type":"agent-tool-result","toolName":"callFunction","toolType":"callFunction","traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016870,"input":{"function":"connections.notion.loadUser","args":{"url":"user://3c6d872b-594c-8152-8e46-00023d46e9e7"}},"state":"applied","result":{"output":"{\"url\":\"user://3c6d872b-594c-8152-8e46-00023d46e9e7\",\"email\":\"mt6rrdq5mb9r@imageeditgpt.com\",\"name\":\"tprobe\"}","headerLabel":[["Loaded user "],["‣",[["u","3c6d872b-594c-8152-8e46-00023d46e9e7"]]]]},"moduleInfo":{"id":"8042928b-82cc-4d0c-81d4-6f3a7b8a8988","name":"notion-module","type":"notion"},"finishedAt":1787564016895,"threadOperations":[],"autoLoadPhase":"context_urls","durationMs":25,"renderedResultArtifactPointer":{"table":"workflow_artifact","id":"3c68c1ed-b9f1-813a-ad67-00af85c21730","spaceId":"f9d8c1ed-b9f1-8155-a056-0003764c935d"}},{"id":"3c68c1ed-b9f1-8009-b579-00aa72030b70","type":"config","value":{"type":"workflow","enableAgentAutomations":true,"enableAgentIntegrations":true,"enableCustomAgents":true,"enableExperimentalIntegrations":false,"enableScriptAgent":true,"enableScriptAgentAdvanced":false,"enableScriptAgentSearchConnectorsInCustomAgent":false,"enableScriptAgentGoogleDriveInCustomAgent":false,"enableScriptAgentGoogleDriveOAuthInCustomAgent":false,"enableScriptAgentSlack":true,"enableScriptAgentMcpServers":true,"enableAgentDiffs":true,"enableCsvAttachmentSupport":true,"showDatabaseAgentsDiscoverability":false,"enableAgentThreadTools":false,"enableCrdtOperations":false,"enableAgentCardCustomization":true,"enableSystemPromptAsPage":false,"enableUserSessionContext":false,"enableLargeToolResultComputerOffload":false,"enableScriptAgentGtm":false,"enableComputer":false,"enableCustomAgentCreateGuidanceV2":true,"enableSoftwareFactoryPage":false,"enableAgentGenerateImage":false,"enableQueryCalendar":false,"enableQueryMail":false,"enableMailExplicitToolCalls":true,"enableMailNotificationPreferences":false,"enableMailAgentMultiProviderSupport":true,"enableNotionMailDeprecated":false,"enableWebResearch":false,"useRulePrioritization":true,"availableConnectors":[],"searchScopes":[{"type":"everything"}],"useWebSearch":true,"isHipaa":false,"internetAccess":false,"manageWorkers":false,"useReadOnlyMode":false,"writerMode":false,"modelFromUser":false,"isCustomAgentBuilder":false,"isCustomAgentCreate":false,"isAgentResearchRequest":false,"useCustomAgentDraft":false,"enableMarkdownVNext":false,"enableSuggestedEditsTools":true,"enableAgentSkillsV2":true,"enableSkillsInCustomAgents":false,"updatePageStaleViewGuardEnabled":false,"enableUpdatePageOrderUpdates":true,"enableAgentSupportPropertyReorder":true,"enableAgentAskSurvey":true,"databaseAgentConfigMode":false,"isOnboardingAgent":false,"isMobile":false,"isCustomAgent":false,"useContextualCoreDocsAutoLoad":false,"useDocPreviewsForCoreAutoLoad":true,"isThreadStartedByAdmin":true,"canAccessAllAgentThreads":false,"isSlackGridExpandedToolsEligible":true,"model":"oatmeal-cookie"}},{"id":"3c68c1ed-b9f1-81e8-8c89-00aa3a1146bd","type":"title","value":"When trains meet calculation","icon":"/icons/chat_lightgray.svg"},{"id":"3c68c1ed-b9f1-814a-927f-00aa665fd949","type":"agent-inference","value":[{"type":"thinking","content":"**Calculating meeting time**\n\nI don't need any tools for this task; it’s a simple calculation. I want to figure out the meeting time based on the distances and speed. If it's slower leaves that take place after 4 PM, I can set up the equation based on distance: \\(60 \\times (1 + t) = 90 \\times t\\). After simplifying, I find that \\(t = 2\\) hours. So, if we meet at 6 PM, that works perfectly!\n","modelProvider":"openai","notionModelName":"oatmeal-cookie","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","startedAt":1787564018724,"finishedAt":1787564019745},{"type":"thinking","id":"rs_0f860966f9333505016a8c0ff1730487d0b3119fd122edc04d","content":"","encryptedContent":"gAAAAABqjA_zs4rdeqZj7d4n2qsfBTGS3J80okD5_IfN5hGpkuussu2bz34G79o-maGsuhW4fCAQo-rJY4uT_ajwCuUA38IWKiRMg9XYBzwdXj_5e5RwhYvTmJYIV42kNtTFYzDKHuCGo97UVY-ala1718gtY_P2MywNSrfUgoqD4Asp6hg7kfQCeIUxoI9fjWAWFPEC0xUGx1Qv8NDgTGY8XKiH-dAU2kNhHIGmbsFi4PCSjvS9C028eL-_KwsRX5WAi7x8Fd78xxPZicTxEuoUVeJw4Qm66MNfpE43CVVs-ZzyDwbceelIB6_yUlCCzB8fLNyxohRWFqvrkl_AwsPm7SLjJnOmBgJvMTRb8HnQL7wM7x_3nXyz5y51paI7W11CUos1QJ2pEW7_W6b1-4IdOt0TAIT1IFzZ-HWiW4HsUXsrS-5jmTcbSUMBVPhHACic12nEzSdNhsRNokmXY_bPZxer222blYOoBiUCsuHUE_jnqY9dLqcL4UJfsL1slgHOrmrMa1qfdo072Pmo3fkh-R0B-6Gr18GQsSKyAi3yG2ohoJGYUGKMdxdFwR3AieXLSJzy53R_YMHZlSEHsC-vXAvSFilS1mvPHhC69KaEhWN5x2odfTI7AvsbOhaekYnU_hzyvdNnhzvPvPBDqqNZcCyR5R4PVCK7LIW2YWafRpIyg_a5S6bLcChu8lFmO0adUxViyhLS25XHRj0oIwKZJRFgnOZ2mjHA3WY2Y6c4sooAH31_OK8c-JqpRURmnxy84ApicwkAdOa1f80PAiFFmxmK7BXKrdpCyPFVYz_in_eYg7hBZcLwNvlINEusOYIOyvnxqlRKts7MxtXda_2vghmUvK37_q_LrNHVrSP8vt4NHJ8fA6ygvboaVk6vQKVTkr61OOx_ZN08YKsVXmIs5-uy2pEtVVdbQRNxrNfpHHmFgPqT1ak4t3bfN58Pz4ELqZ7HWR47Y0YI-zf-U5YgpUbztPbGZ7lBx9pdtEHp6PDiA9JSJiRl71XYNf65biU0Y6P2PJOhtpGFfwCYNEWvNwlGO7XH-xSTBQkQ67j5do8kfgovmAZoUEJVPnY4NyeGJ8C_bNXPzaGK0Rw28sBBnBtLkqXqDJq_9QRkbr1DLrKaPdFnUyWi36tv9LYOnEJQ2mcne0ebNif2J4wlMvXlumPGpJQyIRmtCtFHN2aGZqLq99kYO1fEdgXosXFBoCo2aRPgwvpTs68hQxnALgiXVcZ46qPHD44VZTknlUIyF6UyQWnJ6ihSooBD3nb7dhz0S6aq2ntY5zvwp5LrlnaiRCZl9UUNYN8omXhV1dczPl0bbw-VxlTO9IDviMARfLch5-ZrQcleHgm49-RykSVtIFwR7v858X1vNYXeNStwrf4SQ5419NtGs37xms10E4mN06NRuFhufMk4clRWqsSQvV_drKkbfLr8AM36kKYqnYvvNHrgNiady1uPXEiFSvMcMuDOBGhp","providerCredentialLineage":"v1:CabCTr8Edtdj9jmPY-Ryzw","modelProvider":"openai","notionModelName":"oatmeal-cookie","startedAt":1787564019712,"finishedAt":1787564019745},{"type":"text","content":"Let \\(t\\) = the number of hours **after 4:00 PM** until they meet.\n\n1) **Distance traveled by the 60 mph train (left at 3 PM):**  \n   By 4 PM it already has a 1-hour head start, so total time traveled when they meet is \\(1+t\\) hours.  \n   \\[\n   d_1 = 60(1+t)\n   \\]\n\n2) **Distance traveled by the 90 mph train (left at 4 PM):**  \n   It travels for \\(t\\) hours.  \n   \\[\n   d_2 = 90t\n   \\]\n\n3) **Set distances equal (same station, same direction, meeting means same position):**  \n   \\[\n   60(1+t)=90t\n   \\]\n   \\[\n   60+60t=90t\n   \\]\n   \\[\n   60=30t\n   \\]\n   \\[\n   t=2\n   \\]\n\n4) **Convert back to a clock time:**  \nThey meet \\(2\\) hours after 4:00 PM, i.e. at **6:00 PM**."}],"traceId":"ef087e7b-aa59-4f46-b4e8-4d26bb7ed602","startedAt":1787564016908,"previousAttemptValues":[],"finishedAt":1787564021667,"inputTokens":20625,"outputTokens":312,"cachedTokensRead":19840,"cachedTokensCreated":0,"serverTimeToSubmitLlmMs":27.402929000090808,"serverTimeToFirstTokenMs":1804.2356589999981,"serverPostSubmitTimeToFirstTokenMs":1776.8327299999073,"maxContextTokens":400000,"maxInputTokens":272000,"model":"oatmeal-cookie"}]}}

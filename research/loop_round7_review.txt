@@ -1,0 +1,20 @@
+**A. C3 与合成的关系：保留屏蔽，改合成目标为具体工具**
+根因不是屏蔽，而是模型停在"文档模式"未输出调用块。放开 Agent 只是把方案文本包一层 Task，仍不产生真实副作用，还会引回子代理递归。优先治根因（三层）：① 请求侧强约束——注入不可裁剪的硬指令"必须以 tool_use 调用块输出，禁止描述方案"；② 可用时用 tool_choice/prefill 强制首个块为工具调用；③ 合成仅作最后兜底，目标改为 Write/Bash。另外 C3 建议按入口 flag 生效（仅"客户端具备本地执行"的 /v1/messages），否则 synthesizeTaskCall 成死代码。
+
+**B. 从方案文本提取的规则**
+- file_path：优先取用户消息中的文件名（hello2.py），其次文本中首个匹配 `[\w./-]+\.(py|js|ts|sh|json|md)` 且与代码块语言一致者；无目录则拼 cwd。
+- content：取最后一个 fenced code block，语言 ∉ {bash,sh,shell,console}；多个同语言取最长；剥离行号/`$`提示符。
+- command：取 bash 块首行，或正则 `(python3?|node|pytest)\s+<file_path>`；仅白名单命令可合成，非白名单一律不合成。
+- 顺序与幂等：一次只发一个 tool_use，Write 先，Bash 等回填后下一轮再发（勿假设并发）；按 `(file_path, hash(content))` 去重，单会话合成上限 1–2 次。
+
+**C. 防误伤门控（全部 AND 才合成）**
+① 过滤后的工具列表确实含 Write/Bash；② 用户最新消息有动作意图（写/创建/运行/修复 + 文件名或扩展名）；③ 输出含代码块或"文件名+命令"；④ 无问答特征（疑问句、"是什么/为什么/解释/对比"）；⑤ stop_reason=end_turn 且 tool_calls 为空。再加环境变量 kill switch，合成时打 `synthesized=true` 日志以统计误合成率。
+
+**D. 本轮改动 review**
+- B1：保留，但"429 第二次即 24h 摘除"过激。应区分限速型 429（尊重 Retry-After，冷却 5–15min）与配额型 429（24h），否则账号池被过度摘除。60s 超时保留，但 rotate 是长操作，建议拆连接超时 10s / 总超时 60s。
+- C3：不回退，改为入口级 flag（见 A）。
+- C1：方向对，但摘要可能裁掉了工具调用协议说明，这与"文档模式"直接相关——把硬约束段标为不可裁剪，首轮仍走全量。
+- C2：无需改动；TTFT 埋点建议增加 tool_calls 数、synthesized 维度；ping 间隔与上游超时对齐。
+- 附件放弃 + 400 前置：合理，保留。
+
+**下轮验收**：同一 hello2.py 任务，期望日志出现 Write→Bash 两次真实调用且 synthesized 计数为 0（即根因层已生效）。

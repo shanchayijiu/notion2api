@@ -1,0 +1,157 @@
+package app
+
+// register_provider.go — P2 号源闭环：Go 服务侧调用注册机（Python 子进程）补号入池
+// 复用 Desktop/notion注册机 的 batch_run_proto.py（产号 → probe.json 落盘），
+// 产出的号直接追加进 cfg.Accounts 并持久化。
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	registerProviderRoot = `C:\Users\Administrator\Desktop\notion注册机\register`
+	registerProviderBatch = `batch_run_proto.py`
+	registerProviderTimeout = 180 * time.Second
+)
+
+// RegisterNewAccount — 调注册机产一个新号并入池。
+// 返回新号 email；号目录在注册机 accounts/detail/<email>/。
+func (a *App) RegisterNewAccount(ctx context.Context, proxy string) (string, error) {
+	if a == nil || a.State == nil {
+		return "", fmt.Errorf("server state unavailable")
+	}
+	args := []string{"batch_run_proto.py", "--n", "1", "--gap", "10"}
+	if strings.TrimSpace(proxy) != "" {
+		args = append(args, "--proxy", proxy)
+	}
+	cmd := exec.CommandContext(ctx, "python", args...)
+	cmd.Dir = registerProviderRoot
+	// 强制子进程以 UTF-8 输出，避免 GBK 乱码导致 "OK 成功:" 解析失败
+	cmd.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHON-IGNORE-ENV=1", "PYTHONIOENCODING=utf-8")
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	startTime := time.Now()
+	runErr := cmd.Run()
+	output := outBuf.String()
+	if runErr != nil {
+		// 注册机常在产号成功后以非 0 退出（后续步骤报错），只要能定位到本次新建的账号即视为成功
+		log.Printf("[register_provider] subprocess exit err=%v; will try locate created account", runErr)
+	}
+	email, parseErr := extractRegisteredEmail(output)
+	if parseErr != nil {
+		// 兜底：注册机输出不可解析时，按 probe.json 落盘时间定位本次新建的账号
+		if recent, rErr := findAccountCreatedSince(startTime); rErr == nil {
+			email = recent
+			log.Printf("[register_provider] parsed email missing; located newly created account %s", email)
+		} else if runErr != nil {
+			return "", fmt.Errorf("register subprocess failed: %w stderr=%s", runErr, truncateStr(errBuf.String(), 300))
+		} else {
+			log.Printf("[register_provider] subprocess output: %s", truncateStr(output, 800))
+			return "", parseErr
+		}
+	}
+	// 入池：追加到 cfg.Accounts 并通过 SaveAndApply 刷新 dispatch 快照（snap），
+	// 否则新号只写入存储、不进入实时候选队列，等于没入池。
+	probePath := filepath.Join(registerProviderRoot, "accounts", "detail", email, "probe.json")
+	if !fileExists(probePath) {
+		return "", fmt.Errorf("probe not found for %s", email)
+	}
+	cfg := a.State.Config
+	// 去重：若已入池则不再追加，避免重复条目
+	key := canonicalEmailKey(email)
+	for _, acc := range cfg.Accounts {
+		if canonicalEmailKey(acc.Email) == key {
+			log.Printf("[register_provider] account %s already pooled", email)
+			return email, nil
+		}
+	}
+	cfg.Accounts = append(cfg.Accounts, NotionAccount{
+		Email:     email,
+		ProbeJSON: probePath,
+		Priority:  100,
+	})
+	if err := a.State.SaveAndApply(cfg); err != nil {
+		return "", fmt.Errorf("save accounts failed: %w", err)
+	}
+	log.Printf("[register_provider] new account %s registered and pooled", email)
+	return email, nil
+}
+
+// findAccountCreatedSince — 注册机输出不可解析时，按 accounts/detail/<email>/probe.json
+// 的落盘时间定位本次新建的账号（注册约 30-40s，取 startTime 之后最新创建者）。
+func findAccountCreatedSince(since time.Time) (string, error) {
+	root := filepath.Join(registerProviderRoot, "accounts", "detail")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+	var best string
+	var bestMod time.Time
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		probe := filepath.Join(root, e.Name(), "probe.json")
+		info, err := os.Stat(probe)
+		if err != nil {
+			continue
+		}
+		mt := info.ModTime()
+		if mt.After(since) && mt.After(bestMod) {
+			bestMod = mt
+			best = e.Name()
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("no account created since %s", since.Format(time.RFC3339))
+	}
+	return best, nil
+}
+
+// extractRegisteredEmail — 从 batch_run_proto 输出提取成功邮箱
+func extractRegisteredEmail(output string) (string, error) {
+	// 输出形如: [=== 1/1 ===] OK 成功: mt6puecq4ubt@imageeditgpt.com  space_id=...
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "OK 成功:") {
+			rest := line[strings.Index(line, "OK 成功:")+len("OK 成功:"):]
+			rest = strings.TrimSpace(rest)
+			if at := strings.Index(rest, " "); at > 0 {
+				rest = rest[:at]
+			}
+			if strings.Contains(rest, "@") {
+				return rest, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no registered email in output")
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
+}
+
+// adminRegisterAccount — POST /admin/accounts/register 手动补号
+func (a *App) adminRegisterAccount(w http.ResponseWriter, r *http.Request) {
+	proxy := strings.TrimSpace(r.URL.Query().Get("proxy"))
+	ctx, cancel := context.WithTimeout(r.Context(), registerProviderTimeout)
+	defer cancel()
+	email, err := a.RegisterNewAccount(ctx, proxy)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, "register failed: "+err.Error(), "server_error", "register_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": email, "probe": "register/accounts/detail/" + email + "/probe.json"})
+}

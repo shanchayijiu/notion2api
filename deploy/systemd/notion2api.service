@@ -1,0 +1,24 @@
+[Unit]
+Description=notion2api bridge service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/notion2api
+ExecStart=/opt/notion2api/notion2api --config /opt/notion2api/config/config.json
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+Environment=TZ=Asia/Shanghai
+
+# 如果你的离线站通过宿主机本地映射到特殊网关，可在这里额外补环境变量
+# Environment=HTTPS_PROXY=http://127.0.0.1:7890
+
+NoNewPrivileges=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
