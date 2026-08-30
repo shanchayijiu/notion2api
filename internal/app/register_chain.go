@@ -485,7 +485,21 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 	lifecycle := decodeJSON(lifecycleRaw)
 	trace.log(map[string]any{"step": 7, "action": "lifecycle_resp", "err": fmt.Sprint(lerr)})
 
-	gsiRaw, _, _ := notionPost(ctx, hc, "/getSpacesInitial", map[string]any{}, cv, registerNotionAppHome+"/", nil)
+	// gsi 偶发返回空/失败（网络抖动或登录态热同步延迟）——带重试并记录
+	var gsiRaw []byte
+	var gsiSt int
+	var gsiErr error
+	for ri := 0; ri < 3; ri++ {
+		gsiRaw, gsiSt, gsiErr = notionPost(ctx, hc, "/getSpacesInitial", map[string]any{}, cv, registerNotionAppHome+"/", nil)
+		if gsiErr == nil && gsiSt == 200 {
+			break
+		}
+		trace.log(map[string]any{"step": 7, "action": "gsi_retry", "try": ri, "status": gsiSt, "err": fmt.Sprint(gsiErr)})
+		if !sleepCtx(ctx, 10*time.Second) {
+			goto gsiDone
+		}
+	}
+gsiDone:
 	gsi := decodeJSON(gsiRaw)
 	userID, userName, spaceID := "", "", ""
 	tier := ""
@@ -595,7 +609,8 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		var raw []byte
 		var st int
 		var err error
-		raw, st, err = notionPost(ctx, hc, "/createspace", map[string]any{
+		for retryI := 0; retryI < 3; retryI++ {
+			raw, st, err = notionPost(ctx, hc, "/createspace", map[string]any{
 			"name":           local + "'s Space",
 			"icon":           "🏠",
 			"planType":       "personal",
@@ -605,7 +620,19 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 			"deviceType":     "web-desktop",
 			"source":         "handle_root_redirect",
 			"createSpaceView": true,
-		}, cv, registerNotionAppHome+"/onboarding", nil)
+			}, cv, registerNotionAppHome+"/onboarding", nil)
+			// status=0 系网络层失败（连接被掐/超时），短暂重试
+			if err != nil || st == 0 {
+				trace.log(map[string]any{"step": "7.5", "action": "createspace_retry", "try": retryI, "status": st, "err": fmt.Sprint(err)})
+				if retryI < 2 {
+					if !sleepCtx(ctx, 15*time.Second) {
+						break
+					}
+					continue
+				}
+			}
+			break
+		}
 		if err == nil {
 			if cj := decodeJSON(raw); cj != nil {
 				if sid, _ := cj["spaceId"].(string); sid != "" {
