@@ -450,34 +450,80 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		return registerGoResult{}, fmt.Errorf("%d 次邮箱重试都没成 sendTemporaryPassword", registerMaxEmailAttempts)
 	}
 
-	// Step 5: 拿 6 位验证码（notBefore = sendTemporaryPassword 成功时刻；复用邮箱时排除历史邮件）
-	notBefore := time.Now().Add(-30 * time.Second)
-	trace.log(map[string]any{"step": 5, "action": "wait_for_code_start", "provider": mailProvider})
-	var code string
-	var codeErr error
-	if mailProvider == "adguard" {
-		code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB, notBefore)
-	} else {
-		code, codeErr = mailTmWaitCode(ctx, mailAcc, notBefore)
-	}
-	if codeErr != nil || code == "" {
-		trace.log(map[string]any{"step": 5, "action": "no_code", "err": fmt.Sprint(codeErr)})
-		writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "no_code_in_tempmail", "step": 5})
-		return registerGoResult{}, fmt.Errorf("没收到 Notion 邮件或抽不到 6 位 code: %v", codeErr)
-	}
-	trace.log(map[string]any{"step": 5, "action": "code_acquired"})
+	// Step 5+6：验证码→loginWithEmail 内层重试。
+	// 实测 Notion 邮件经过 adguard 延迟 0-11min，而临时密码有效期 ~10min——
+	// 撞过期就立即重发重来（同一 csrf/cookie 会话里换新的 csrfState）。
+	loginOK := false
+	var tokenV2 string
+	for loginTry := 0; loginTry < 3 && !loginOK; loginTry++ {
+		if loginTry > 0 {
+			trace.log(map[string]any{"step": 4, "action": "resend_temp_pwd", "try": loginTry})
+			raw, st, err := notionPost(ctx, hc, "/sendTemporaryPassword", map[string]any{
+				"email": email, "disableLoginLink": false, "native": false,
+				"isSignup": true, "shouldHidePasscode": false,
+				"loginOptionsToken": loToken,
+			}, cv, registerNotionAppHome+"/signup", nil)
+			j2 := decodeJSON(raw)
+			csrfState = ""
+			if err == nil && j2 != nil {
+				csrfState, _ = j2["csrfState"].(string)
+			}
+			trace.log(map[string]any{"step": 4, "action": "resend_temp_pwd_resp", "status": st, "try": loginTry, "has_csrf": csrfState != "", "err": fmt.Sprint(err)})
+			if csrfState == "" {
+				continue
+			}
+			if !sleepCtx(ctx, 3*time.Second) {
+				return registerGoResult{}, ctx.Err()
+			}
+		}
 
-	// Step 6: loginWithEmail → token_v2 cookie
-	ref := registerNotionAppHome + "/loginwithemail?state=" + loToken[:minInt(len(loToken), 50)] + "..."
-	raw, st, err := notionPost(ctx, hc, "/loginWithEmail", map[string]any{
-		"state": csrfState, "password": code, "email": email,
-		"isSignup": true, "appSource": "notion", "loginRouteOrigin": "signup",
-	}, cv, ref, nil)
-	tokenV2 := sessionCookieValue(hc, "token_v2")
-	trace.log(map[string]any{"step": 6, "action": "login_with_email_resp", "status": st, "token_v2_present": tokenV2 != ""})
-	if err != nil || st != 200 || tokenV2 == "" {
-		writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "login_with_email_failed", "step": 6, "status_code": st})
-		return registerGoResult{}, fmt.Errorf("loginWithEmail 没拿到 token_v2: status=%d body=%s", st, truncateBytes(raw, 300))
+		// Step 5: 拿 6 位验证码 / 魔链密码（notBefore = sendTemporaryPassword 成功时刻）
+		notBefore := time.Now().Add(-30 * time.Second)
+		trace.log(map[string]any{"step": 5, "action": "wait_for_code_start", "provider": mailProvider, "try": loginTry})
+		var code string
+		var codeErr error
+		if mailProvider == "adguard" {
+			code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB, notBefore)
+		} else {
+			code, codeErr = mailTmWaitCode(ctx, mailAcc, notBefore)
+		}
+		if codeErr != nil || code == "" {
+			trace.log(map[string]any{"step": 5, "action": "no_code", "err": fmt.Sprint(codeErr), "try": loginTry})
+			writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "no_code_in_tempmail", "step": 5})
+			return registerGoResult{}, fmt.Errorf("没收到 Notion 邮件或抽不到码: %v", codeErr)
+		}
+		trace.log(map[string]any{"step": 5, "action": "code_acquired", "try": loginTry})
+
+		// Step 6: loginWithEmail → token_v2 cookie
+		ref := registerNotionAppHome + "/loginwithemail"
+		raw, st, err := notionPost(ctx, hc, "/loginWithEmail", map[string]any{
+			"state": csrfState, "password": code, "email": email,
+			"isSignup": true, "appSource": "notion", "loginRouteOrigin": "signup",
+		}, cv, ref, nil)
+		tokenV2 = sessionCookieValue(hc, "token_v2")
+		trace.log(map[string]any{"step": 6, "action": "login_with_email_resp", "status": st, "token_v2_present": tokenV2 != "", "try": loginTry})
+		if err == nil && st == 200 && tokenV2 != "" {
+			loginOK = true
+			break
+		}
+		// invalid_or_expired_password（邮件晚到超过 10min 有效期）→ 重试；其他错误快速失败
+		var dj map[string]any
+		_ = json.Unmarshal(raw, &dj)
+		cdType := ""
+		if dj != nil {
+			if cd, ok := dj["clientData"].(map[string]any); ok {
+				cdType, _ = cd["type"].(string)
+			}
+		}
+		trace.log(map[string]any{"step": 6, "action": "login_failed_diag", "status": st, "type": cdType, "body": truncateBytes(raw, 300), "try": loginTry})
+		if cdType != "invalid_or_expired_password" {
+			writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "login_with_email_failed", "step": 6, "status_code": st})
+			return registerGoResult{}, fmt.Errorf("loginWithEmail 没拿到 token_v2: status=%d body=%s", st, truncateBytes(raw, 300))
+		}
+	}
+	if !loginOK {
+		writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "login_with_email_failed_retries_exhausted", "step": 6})
+		return registerGoResult{}, fmt.Errorf("loginWithEmail 3 次均无效(疑似邮件延迟超过密码有效期)")
 	}
 
 	// Step 7: onboarding — getLifecycleUserProfile + getSpacesInitial
