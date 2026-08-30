@@ -146,13 +146,11 @@ func (a *App) createPoolSpace(ctx context.Context, cfg AppConfig, acc NotionAcco
 	spaceID, viewID, err := rotator.createSpaceHTTP(ctx, client, deviceID)
 	if err != nil {
 		var apiErr *notionAPIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
-			// 频率限（"recently submitted"）不打 24h 冷却（仅此误判把新注册号锁死一整天）；
-			// 仅真正的每日上限才标记
-			if !isTransientCreate429(err) {
-				rotator.markAccountDailyCooldown(cfg, acc.Email, 24*time.Hour)
-			}
-		}
+		// 预建是低优先度兜底路径：任何 429（频率/日限）都不打账号冷却——
+		// 池巡检下个 tick 自会再试；打账号冷却会把新注册号锁死一整天（2026-08-31 实测三回）
+		_ = errors.As
+		_ = apiErr
+		_ = http.StatusTooManyRequests
 		return err
 	}
 	if strings.TrimSpace(viewID) == "" {
