@@ -10,6 +10,14 @@
 - 支持图片、PDF、CSV 等附件请求
 - 自带 WebUI 管理面：`/admin`
 - 使用 SQLite 持久化账号、会话和运行状态
+- 纯 Go 自动注册机（无 python/playwright 依赖）：
+  - tempmail 链：`mail.tm`（tokend 直连）/ AdGuard tempmail（预置邮箱 cookies 复用）
+  - 完整协议链：signup → getLoginOptions → sendTemporaryPassword → 收码(数字码/魔链 token 均支持) → loginWithEmail → 空间获取(getSpacesInitial / loadUserContent / selfJoinSpaceByDomain / createspace) → getAvailableModels → probe 落盘
+  - 邮件延迟/invalid_or_expired_password 自动换码重试（内层 3 轮）
+- 工作空间配额恢复轮换（space_pool）：
+  - 每账号预建 N 个空间（默认 3，节流 10min/次）
+  - 推理遇额度归零 → 写 cooldown（默认 60min）→ 无当即复用池内空间重试
+  - 定时巡检冷却到点自动恢复为 active（不再增删工作空间）
 
 ## 快速开始
 
@@ -115,6 +123,27 @@ HTTP 请求优先顺序：
 - `resin_enabled` / `resin_url` / `resin_platform` / `resin_mode`
 - `accounts[*].sticky_proxy_account`
 - `accounts` / `active_account`
+
+### 自动注册（register）
+
+- `register.enabled`：开启账号自动注册+水位补给（低于 `min_healthy_accounts` 时自动补号）
+- `register.script_dir`：注册产物根目录（`accounts/detail` 出 probe.json、`mailboxes` 放 adguard cookies、`logs` 落 trace）
+- `register.mail_provider`：`mailtm` 或 `adguard`
+  - `mailtm`：自建随机邮箱（Notion 域名白名单限制，当前 emalupe.com 被拒时自动切回）
+  - `adguard`：从 `script_dir/mailboxes/*.json`（capjs 浏览器版脚本产出）挑未消费的邮箱
+- `register.space_mode`：`invite`（先 selfJoinSpaceByDomain 再自建 personal 兜底）或 `personal`（自建/复用 personal）
+- `register.timeout_sec`：单次注册上限（建议 1200，其中收码等待常耗 10min+）
+
+### 空间配额池（space_pool）
+
+- `space_pool.enabled`：开启预建+冷却轮换（）
+- `space_pool.target_per_account`：每号预建至 N 个空间（默认 2）
+- `space_pool.cooldown_minutes`：额度归零后冷却时长，到点自动恢复（建议 ≥60）
+- `space_pool.check_interval_sec`：池巡检间隔（默认 120s）
+
+行为说明：
+- 推理撞额度错时，当前空间进 cooldown，轮换器优先**复用**池内 active 空间（不算新建，不吃建空间日额），池空才 fallback 新 create（原始节流 min interval 10min）
+- `workspace_deletion` 旧式增删循环在 space_pool 开启时自然退化为无人可删
 - `storage.sqlite_path`
 
 可直接参考：
