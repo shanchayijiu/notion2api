@@ -525,6 +525,57 @@ gsiDone:
 			break
 		}
 	}
+	// getSpacesInitial 对老账号返回里往往没有 spaces 段（实测 concrete.sloth 2026-08-31），
+	// 退而求其次：loadUserContent 的 recordMap.space / space_view 是全量权威来源
+	if spaceID == "" {
+		lucRaw, _, lucErr := notionPost(ctx, hc, "/loadUserContent", map[string]any{}, cv, registerNotionAppHome+"/", nil)
+		luc := decodeJSON(lucRaw)
+		if lucErr == nil {
+			if rm, ok := luc["recordMap"].(map[string]any); ok {
+				spaces, _ := rm["space"].(map[string]any)
+				spaceViews, _ := rm["space_view"].(map[string]any)
+				viewOf := map[string]string{}
+				for vid, vv := range spaceViews {
+					if vm, ok := vv.(map[string]any); ok {
+						if rec, ok := vm["value"].(map[string]any); ok {
+							if rec2, ok := rec["value"].(map[string]any); ok {
+								if sid, _ := rec2["spaceId"].(string); sid != "" {
+									viewOf[sid] = vid
+								}
+							}
+						}
+					}
+				}
+				// 偏好 "XXX's Space" 的原始个人空间；其次任意空间
+				var first string
+				for sid, sv := range spaces {
+					if first == "" {
+						first = sid
+					}
+					if sm, ok := sv.(map[string]any); ok {
+						if rec, ok := sm["value"].(map[string]any); ok {
+							if rec2, ok := rec["value"].(map[string]any); ok {
+								if nm, _ := rec2["name"].(string); strings.Contains(nm, "'s Space") {
+									spaceID = sid
+									break
+								}
+							}
+						}
+					}
+				}
+				if spaceID == "" {
+					spaceID = first
+				}
+				if spaceID != "" {
+					spaceViewIDExisting = viewOf[spaceID]
+					trace.log(map[string]any{"step": 7, "action": "load_user_content_space", "space_id": spaceID, "space_view_id": spaceViewIDExisting, "n_spaces": len(spaces)})
+				}
+			}
+		} else {
+			trace.log(map[string]any{"step": 7, "action": "load_user_content_err", "err": fmt.Sprint(lucErr)})
+		}
+	}
+
 	// 已有空间顺带挖出它的 spaceViewId（getSpacesInitial 里 view 节点 value 带 spaceId，key 是 view uuid）
 	if spaceID != "" {
 		var scan func(v any, depth int) string
