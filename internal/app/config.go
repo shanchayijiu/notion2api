@@ -185,22 +185,36 @@ type AppConfig struct {
 	Browser               BrowserConfig        `json:"browser,omitempty"`
 	Debug                 DebugConfig          `json:"debug"`
 	Register              RegisterConfig       `json:"register,omitempty"`
+	SpacePool             SpacePoolConfig      `json:"space_pool,omitempty"`
 	Accounts              []NotionAccount      `json:"accounts,omitempty"`
 	Models                []ModelDefinition    `json:"models,omitempty"`
 	ModelAliases          map[string]string    `json:"model_aliases,omitempty"`
 }
 
-// RegisterConfig — P2 号源（注册机）配置。注册脚本目录已配置化（原硬编码 Windows 路径）,
-// Docker/Linux 下挂载脚本目录即可使用;Enabled=true 时启动后台水位巡检自动补号。
+// RegisterConfig — P2 号源（注册机）配置。2026-08-30 起注册链为纯 Go（register_chain.go），
+// 不再调 Python 子进程；ScriptDir 保留为 register 根目录（accounts/ logs/ mailboxes/ 落盘），
+// ScriptName/PythonBin 仅意义不再是必填。
 type RegisterConfig struct {
-	Enabled          bool   `json:"enabled"`                        // 自动补给开关（默认关;脚本未配置时开也不生效）
-	ScriptDir        string `json:"script_dir,omitempty"`           // batch_run 脚本所在目录（容器内挂载路径）
-	ScriptName       string `json:"script_name,omitempty"`          // 默认 batch_run_proto.py
-	PythonBin        string `json:"python_bin,omitempty"`           // 默认 python3
+	Enabled          bool   `json:"enabled"`                        // 自动补给开关（默认关）
+	ScriptDir        string `json:"script_dir,omitempty"`           // 注册根目录（含 accounts/ logs/ mailboxes/，容器内挂载路径）
+	ScriptName       string `json:"script_name,omitempty"`          // 遗留字段（纯 Go 链不再使用）
+	PythonBin        string `json:"python_bin,omitempty"`           // 遗留字段（纯 Go 链不再使用）
 	Proxy            string `json:"proxy,omitempty"`                // 注册流量代理（可选）
 	TimeoutSec       int    `json:"timeout_sec,omitempty"`          // 单次注册超时,默认 180
 	MinHealthy       int    `json:"min_healthy_accounts,omitempty"` // 池健康水位:健康账号低于此值时补 1 个
 	CheckIntervalSec int    `json:"check_interval_sec,omitempty"`   // 水位巡检周期,默认 600
+	MailProvider     string `json:"mail_provider,omitempty"`        // 邮箱源：mailtm（默认，纯 HTTP）/ adguard（复用已建 mailbox cookie）
+	SpaceMode        string `json:"space_mode,omitempty"`           // 空间模式：invite（默认，被邀优先+personal 兜底）/ personal（直接自建）
+}
+
+// SpacePoolConfig — 工作空间预建+冷却恢复池（配额可恢复轮换）：
+// 每号一次创建到 TargetPerAccount 个 personal 空间，额度耗尽标记 cooldown，
+// 定时器冷却到点（CooldownMinutes）自动恢复为 active，轮换优先复用已恢复的空间，不再删除空间。
+type SpacePoolConfig struct {
+	Enabled          bool `json:"enabled"`                      // 冷却恢复轮换开关（默认关）
+	TargetPerAccount int  `json:"target_per_account,omitempty"` // 每号预建空间数（默认 3，实验上限 ~5）
+	CooldownMinutes  int  `json:"cooldown_minutes,omitempty"`   // 空间冷却时长（默认 60，实际恢复周期待观察调优）
+	CheckIntervalSec int  `json:"check_interval_sec,omitempty"` // 冷却恢复/补齐巡检周期（默认 120）
 }
 
 func defaultPromptCognitiveReframingPrefix() string {

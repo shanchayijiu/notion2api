@@ -372,7 +372,14 @@ func (a *App) executePromptWithRotation(ctx context.Context, cfg AppConfig, sess
 		return result, err
 	}
 	log.Printf("[workspace_rotation] quota-exhausted detected account=%s space=%s -> rotating", accountEmail, session.SpaceID)
-	a.rotator.MarkExhausted(session.SpaceID, accountEmail)
+	if cfg.ResolveSpacePool().Enabled {
+		// 配额恢复轮换：标记 cooldown，定时器冷却到点自动恢复；不再永久 exhausted
+		until := time.Now().Add(time.Duration(cfg.ResolveSpacePool().CooldownMinutes) * time.Minute)
+		a.rotator.MarkSpaceCooldown(session.SpaceID, accountEmail, until)
+		log.Printf("[workspace_rotation] space %s cooldown until %s (auto recovers)", session.SpaceID, until.Format(time.RFC3339))
+	} else {
+		a.rotator.MarkExhausted(session.SpaceID, accountEmail)
+	}
 	newSession, rotateErr := a.rotator.Rotate(ctx, cfg, session)
 	if rotateErr != nil {
 		log.Printf("[workspace_rotation] rotate failed for %s: %v", accountEmail, rotateErr)

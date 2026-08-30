@@ -23,6 +23,7 @@ const (
 	spaceStatusActive    = "active"
 	spaceStatusExhausted = "exhausted"
 	spaceStatusToDelete  = "to_delete"
+	spaceStatusCooldown  = "cooldown" // 配额恢复轮换：额度归零 → cooldown，CoolDownUntil 到点自动回 active
 
 	rotateDefaultPlanType = "personal"
 	// 保守节流：单账号创建 ≥10 分钟一次（贴近真实用户频率；批量触发账号级 429 风控）
@@ -33,12 +34,14 @@ const (
 
 // SpaceLifecycle — 空间生命周期记录（SQLite）
 type SpaceLifecycle struct {
-	SpaceID      string
-	AccountEmail string
-	Status       string
-	ThreadID     string
-	CreatedAt    string
-	UpdatedAt    string
+	SpaceID       string
+	AccountEmail  string
+	Status        string // active / exhausted(历史) / cooldown / to_delete
+	ThreadID      string
+	SpaceViewID   string // createspace 返回的绑定 view（轮换复用空间必需）
+	CooldownUntil string // status=cooldown 时的恢复时刻（RFC3339）；定时器到点自动转 active
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 // WorkspaceRotator — 工作空间轮换引擎
@@ -123,6 +126,23 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 	}
 	client := newNotionAIClient(session, cfg, accountEmail)
 
+	// 配额池模式（space_pool.enabled）：轮换优先复用池内已存在的 active 空间
+	//（预建池 / 冷却恢复的空间），不触发 createspace、不消耗每日建空间额度。
+	if cfg.ResolveSpacePool().Enabled {
+		if nextID, nextViewID, ok := r.pickReusableSpace(session.SpaceID, email); ok {
+			session.SpaceID = nextID
+			session.SpaceViewID = nextViewID
+			client.Session.SpaceID = nextID
+			client.Session.SpaceViewID = nextViewID
+			if perr := client.persistSessionProbe(); perr != nil {
+				log.Printf("[workspace_rotation] persist probe failed for %s: %v", email, perr)
+			}
+			log.Printf("[workspace_rotation] reused pool space account=%s new_space=%s (pool mode, no createspace)", email, nextID)
+			return session, nil
+		}
+		log.Printf("[workspace_rotation] pool empty for %s; falling back to createspace", email)
+	}
+
 	// 轮换是恢复动作，用独立更长超时（不继承请求 60s 预算；createspace 响应可能 30-90s）
 	// 轮换使用脱离请求的独立 ctx（60s 上限）——刻意决策：
 	// ① createspace 正常 30-90s，挂在请求 60s 预算上会把轮换掐死在"新空间建好未就绪"的中间态；
@@ -169,7 +189,7 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 			return session, fmt.Errorf("bind space %s: %w", spaceID, err)
 		}
 	} else {
-		r.recordLifecycle(spaceID, session.UserEmail, spaceStatusActive, "")
+		r.recordLifecycle(spaceID, session.UserEmail, spaceStatusActive, "", viewID)
 	}
 
 	// 4) 更新 session 指向新空间
@@ -186,7 +206,7 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 	}
 
 	// 5) 生命周期记录
-	r.recordLifecycle(spaceID, session.UserEmail, spaceStatusActive, "")
+	r.recordLifecycle(spaceID, session.UserEmail, spaceStatusActive, "", viewID)
 
 	return session, nil
 }
@@ -452,15 +472,46 @@ func (r *WorkspaceRotator) bindSpaceHTTP(ctx context.Context, client *NotionAICl
 	return "", fmt.Errorf("space_view binding not confirmed after polls (ghost space); space_id=%s", spaceID)
 }
 
-// recordLifecycle — 空间生命周期写 SQLite
-func (r *WorkspaceRotator) recordLifecycle(spaceID string, accountEmail string, status string, threadID string) {
+// recordLifecycle — 空间生命周期写 SQLite（viewID 供 cooldown 恢复后复用空间时回写 probe）
+func (r *WorkspaceRotator) recordLifecycle(spaceID string, accountEmail string, status string, threadID string, viewID string) {
 	if r == nil || r.store == nil {
 		return
 	}
 	_ = r.store.SaveSpaceLifecycle(SpaceLifecycle{
 		SpaceID: spaceID, AccountEmail: accountEmail,
-		Status: status, ThreadID: threadID,
+		Status: status, ThreadID: threadID, SpaceViewID: viewID,
 	})
+}
+
+// pickReusableSpace — 从池里挑一个可复用的 active 空间（排除当前正在用的）：
+// 返回 (spaceID, viewID, found)。优先最近创建（预建池的后备空间最新）。
+func (r *WorkspaceRotator) pickReusableSpace(currentSpaceID string, accountEmail string) (string, string, bool) {
+	if r == nil || r.store == nil {
+		return "", "", false
+	}
+	items, err := r.store.LoadSpaceLifecycles(accountEmail, spaceStatusActive)
+	if err != nil || len(items) == 0 {
+		return "", "", false
+	}
+	cur := strings.TrimSpace(currentSpaceID)
+	for _, lc := range items {
+		if strings.TrimSpace(lc.SpaceID) == "" || strings.EqualFold(strings.TrimSpace(lc.SpaceID), cur) {
+			continue
+		}
+		return strings.TrimSpace(lc.SpaceID), strings.TrimSpace(lc.SpaceViewID), true
+	}
+	return "", "", false
+}
+
+// MarkSpaceCooldown — 配额耗尽登记为 cooldown（定时器冷却到点自动恢复 active）；
+// 不再删除/永不回用（space_pool 模式核心语义）。
+func (r *WorkspaceRotator) MarkSpaceCooldown(spaceID string, accountEmail string, until time.Time) {
+	if r == nil || r.store == nil || strings.TrimSpace(spaceID) == "" {
+		return
+	}
+	if err := r.store.SetSpaceLifecycleCooldown(spaceID, until); err != nil {
+		log.Printf("[workspace_pool] mark cooldown failed space=%s: %v", spaceID, err)
+	}
 }
 
 func rotateSpaceName() string {

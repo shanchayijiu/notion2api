@@ -194,6 +194,8 @@ func (s *SQLiteStore) init() error {
 		`ALTER TABLE responses ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE responses ADD COLUMN thread_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE responses ADD COLUMN account_email TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE space_lifecycle ADD COLUMN space_view_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE space_lifecycle ADD COLUMN cooldown_until TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {
 			lower := strings.ToLower(err.Error())
@@ -845,12 +847,13 @@ func (s *SQLiteStore) SaveSpaceLifecycle(lc SpaceLifecycle) error {
 	}
 	lc.UpdatedAt = now
 	_, err := s.db.Exec(
-		`INSERT INTO space_lifecycle(space_id, account_email, status, thread_id, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?)
+		`INSERT INTO space_lifecycle(space_id, account_email, status, thread_id, space_view_id, cooldown_until, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(space_id) DO UPDATE SET
 		   account_email=excluded.account_email, status=excluded.status,
-		   thread_id=excluded.thread_id, updated_at=excluded.updated_at`,
-		lc.SpaceID, lc.AccountEmail, lc.Status, lc.ThreadID, lc.CreatedAt, lc.UpdatedAt)
+		   thread_id=excluded.thread_id, space_view_id=excluded.space_view_id,
+		   cooldown_until=excluded.cooldown_until, updated_at=excluded.updated_at`,
+		lc.SpaceID, lc.AccountEmail, lc.Status, lc.ThreadID, lc.SpaceViewID, lc.CooldownUntil, lc.CreatedAt, lc.UpdatedAt)
 	return err
 }
 
@@ -867,6 +870,32 @@ func (s *SQLiteStore) UpdateSpaceLifecycleStatus(spaceID string, status string) 
 	return err
 }
 
+// SetSpaceLifecycleCooldown — 标记空间冷却（cooldown_until 到点自动恢复）
+func (s *SQLiteStore) SetSpaceLifecycleCooldown(spaceID string, until time.Time) error {
+	startedAt := time.Now()
+	defer observeSQLiteDuration("set_space_lifecycle_cooldown", startedAt)
+	if s == nil || s.db == nil || strings.TrimSpace(spaceID) == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE space_lifecycle SET status='cooldown', cooldown_until=?, updated_at=? WHERE space_id=?`,
+		until.UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(spaceID))
+	return err
+}
+
+// ClearSpaceLifecycleCooldown — 冷却到点恢复为 active（定时器调用）
+func (s *SQLiteStore) ClearSpaceLifecycleCooldown(spaceID string) error {
+	startedAt := time.Now()
+	defer observeSQLiteDuration("clear_space_lifecycle_cooldown", startedAt)
+	if s == nil || s.db == nil || strings.TrimSpace(spaceID) == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`UPDATE space_lifecycle SET status='active', cooldown_until='', updated_at=? WHERE space_id=? AND status='cooldown'`,
+		time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(spaceID))
+	return err
+}
+
 // LoadSpaceLifecycles — 按账号+状态列出空间生命周期
 func (s *SQLiteStore) LoadSpaceLifecycles(accountEmail string, status string) ([]SpaceLifecycle, error) {
 	startedAt := time.Now()
@@ -879,7 +908,7 @@ func (s *SQLiteStore) LoadSpaceLifecycles(accountEmail string, status string) ([
 	if db == nil {
 		return out, nil
 	}
-	query := `SELECT space_id, account_email, status, thread_id, created_at, updated_at FROM space_lifecycle`
+	query := `SELECT space_id, account_email, status, thread_id, space_view_id, cooldown_until, created_at, updated_at FROM space_lifecycle`
 	args := []any{}
 	if strings.TrimSpace(accountEmail) != "" {
 		query += ` WHERE account_email = ?`
@@ -901,7 +930,7 @@ func (s *SQLiteStore) LoadSpaceLifecycles(accountEmail string, status string) ([
 	defer rows.Close()
 	for rows.Next() {
 		var lc SpaceLifecycle
-		if err := rows.Scan(&lc.SpaceID, &lc.AccountEmail, &lc.Status, &lc.ThreadID, &lc.CreatedAt, &lc.UpdatedAt); err != nil {
+		if err := rows.Scan(&lc.SpaceID, &lc.AccountEmail, &lc.Status, &lc.ThreadID, &lc.SpaceViewID, &lc.CooldownUntil, &lc.CreatedAt, &lc.UpdatedAt); err != nil {
 			return out, err
 		}
 		out = append(out, lc)

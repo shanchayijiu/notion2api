@@ -3192,6 +3192,7 @@ func Main() {
 	app.StartEphemeralConversationCleanupLoop(context.Background())
 	app.StartWorkspaceDeletionLoop(context.Background())
 	go app.startAccountReconcilerLoop(context.Background()) // P2:池水位巡检自动补号(register.enabled 时生效)
+	go app.startSpacePoolLoop(context.Background()) // 空间冷却恢复+池补齐(space_pool.enabled 时生效)
 	if cfg.Debug.PprofEnabled {
 		go func(addr string) {
 			log.Printf("[pprof] listening on http://%s/debug/pprof/ (local debug endpoint; avoid public exposure)", addr)

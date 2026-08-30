@@ -215,7 +215,22 @@ func (cfg AppConfig) ResolveRegister() RegisterConfig {
 	if rc.Enabled && rc.MinHealthy <= 0 {
 		rc.MinHealthy = 1
 	}
+	rc.MailProvider = firstNonEmpty(strings.ToLower(strings.TrimSpace(rc.MailProvider)), "mailtm")
+	rc.SpaceMode = firstNonEmpty(strings.ToLower(strings.TrimSpace(rc.SpaceMode)), "invite")
 	return rc
+}
+
+// ResolveSpacePool — 空间池配置归一（含默认值）
+func (cfg AppConfig) ResolveSpacePool() SpacePoolConfig {
+	sc := cfg.SpacePool
+	if sc.TargetPerAccount <= 0 {
+		sc.TargetPerAccount = 3
+	}
+	if sc.CooldownMinutes <= 0 {
+		sc.CooldownMinutes = 60
+	}
+	sc.CheckIntervalSec = maxInt(sc.CheckIntervalSec, 120)
+	return sc
 }
 
 func (helper ResolvedLoginHelper) ProfileDirFor(email string) string {

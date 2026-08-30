@@ -412,14 +412,18 @@ func TestMutateAccount_MakeActive(t *testing.T) {
 
 // ── Phase 2:register 配置化 + 池水位巡检 + healthz 分级 ──────────────
 
-func TestExtractRegisteredEmail(t *testing.T) {
-	out := "[=== 1/1 ===] OK 成功: mt6puecq4ubt@imageeditgpt.com  space_id=abc"
-	email, err := extractRegisteredEmail(out)
-	if err != nil || email != "mt6puecq4ubt@imageeditgpt.com" {
-		t.Fatalf("extract failed: %q %v", email, err)
+func TestExtractNotionCode(t *testing.T) {
+	cases := map[string]string{
+		"Your verification code is 123-456 for Notion": "123456",
+		"Enter 123 456 to continue":                    "123456",
+		"Use 123456 to login":                          "123456",
+		"Expires in 10 minutes. No digits here":        "",
+		"model 901 and 2026-08-30":                     "",
 	}
-	if _, err := extractRegisteredEmail("nothing here"); err == nil {
-		t.Fatalf("expect error on junk output")
+	for input, want := range cases {
+		if got := extractNotionCode(input); got != want {
+			t.Fatalf("extractNotionCode(%q)=%q want %q", input, got, want)
+		}
 	}
 }
 
@@ -492,5 +496,95 @@ func TestInternalMetricsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(rr2.Body.String(), "cmdline") {
 		t.Fatalf("expvar payload missing: %s", rr2.Body.String()[:200])
+	}
+}
+
+// ── 空间冷却恢复 + 池轮换（space_pool）─────────────────────────────
+
+func TestSpacePoolDefaults(t *testing.T) {
+	cfg := AppConfig{}
+	sc := cfg.ResolveSpacePool()
+	if sc.Enabled {
+		t.Fatalf("space_pool default must be off")
+	}
+	if sc.TargetPerAccount != 3 || sc.CooldownMinutes != 60 || sc.CheckIntervalSec != 120 {
+		t.Fatalf("defaults wrong: %+v", sc)
+	}
+}
+
+func TestSpaceCooldownLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	cfg := AppConfig{}
+	cfg.Storage.SQLitePath = dir + "/t.sqlite"
+	store, err := openSQLiteStore(cfg)
+	if err != nil || store == nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	email := "p@x.com"
+	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "sp1", AccountEmail: email, Status: "active", SpaceViewID: "v1"})
+	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "sp2", AccountEmail: email, Status: "active", SpaceViewID: "v2"})
+	// 额度耗尽 → cooldown（过期时间过去 = 已可恢复）
+	past := time.Now().Add(-time.Minute)
+	if err := store.SetSpaceLifecycleCooldown("sp1", past); err != nil {
+		t.Fatalf("set cooldown: %v", err)
+	}
+	// 恢复定时器语义（直接调存储层：App 层面只是遍历调用）
+	items, _ := store.LoadSpaceLifecycles("", "cooldown")
+	if len(items) != 1 || items[0].SpaceID != "sp1" || items[0].CooldownUntil == "" {
+		t.Fatalf("cooldown lifecycle wrong: %+v", items)
+	}
+	if err := store.ClearSpaceLifecycleCooldown("sp1"); err != nil {
+		t.Fatalf("clear cooldown: %v", err)
+	}
+	actives, _ := store.LoadSpaceLifecycles(email, "active")
+	if len(actives) != 2 {
+		t.Fatalf("after recovery want 2 active, got %d", len(actives))
+	}
+	// view 字段持久化（轮换复用时必需）
+	foundV1, foundV2 := false, false
+	for _, lc := range actives {
+		if lc.SpaceID == "sp1" && lc.SpaceViewID == "v1" {
+			foundV1 = true
+		}
+		if lc.SpaceID == "sp2" && lc.SpaceViewID == "v2" {
+			foundV2 = true
+		}
+	}
+	if !foundV1 || !foundV2 {
+		t.Fatalf("space_view_id not persisted/recovered: %+v", actives)
+	}
+}
+
+func TestPickReusableSpaceSkipsCurrent(t *testing.T) {
+	dir := t.TempDir()
+	cfg := AppConfig{}
+	cfg.Storage.SQLitePath = dir + "/t.sqlite"
+	store, err := openSQLiteStore(cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	r := NewWorkspaceRotator(store)
+	email := "p@x.com"
+	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "cur", AccountEmail: email, Status: "active"})
+	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "pool_a", AccountEmail: email, Status: "active", SpaceViewID: "va"})
+	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "pool_cd", AccountEmail: email, Status: "cooldown", CooldownUntil: time.Now().Add(time.Hour).Format(time.RFC3339Nano)})
+	next, view, ok := r.pickReusableSpace("cur", email)
+	if !ok || next == "cur" || next == "pool_cd" || next == "" {
+		t.Fatalf("reusable pick wrong: next=%q view=%q ok=%v", next, view, ok)
+	}
+	if view != "va" {
+		t.Fatalf("reusable pick must carry view id, got %q", view)
+	}
+	// 排除当前后只剩另一个 active（当前=pool_a 时 cur 可用）
+	next2, _, ok2 := r.pickReusableSpace("pool_a", email)
+	if !ok2 || next2 != "cur" {
+		t.Fatalf("second pick must resolve to cur, got %q ok=%v", next2, ok2)
+	}
+	// 唯一空间和当前相同 → 不可重用
+	r2 := NewWorkspaceRotator(store)
+	if _, _, ok3 := r2.pickReusableSpace("cur2", "nope@x.com"); ok3 {
+		t.Fatalf("empty pool must be false")
 	}
 }

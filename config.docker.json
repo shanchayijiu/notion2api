@@ -56,14 +56,20 @@
     "helper_pool_size": 0
   },
   "register": {
-    "enabled": false,
-    "script_dir": "",
-    "script_name": "batch_run_proto.py",
-    "python_bin": "python3",
+    "enabled": true,
+    "script_dir": "/app/data/register",
     "proxy": "",
-    "timeout_sec": 180,
-    "min_healthy_accounts": 1,
-    "check_interval_sec": 600
+    "timeout_sec": 1200,
+    "min_healthy_accounts": 2,
+    "check_interval_sec": 600,
+    "mail_provider": "mailtm",
+    "space_mode": "invite"
+  },
+  "space_pool": {
+    "enabled": true,
+    "target_per_account": 3,
+    "cooldown_minutes": 60,
+    "check_interval_sec": 120
   },
   "debug": {
     "pprof_enabled": false,
@@ -90,4 +96,3 @@
   },
   "accounts": []
 }
-
