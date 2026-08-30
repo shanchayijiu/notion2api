@@ -176,7 +176,9 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 		// 429 = 号冷却/每日上限：标记账号 cooldown +24h（每日重置，不删号）
 		var apiErr *notionAPIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
-			if r.markAccountDailyCooldown(cfg, email, 24*time.Hour) {
+			if isTransientCreate429(err) {
+				log.Printf("[workspace_rotation] account %s createspace frequency-limited (recently submitted); 下次池巡检自动重试", email)
+			} else if r.markAccountDailyCooldown(cfg, email, 24*time.Hour) {
 				log.Printf("[workspace_rotation] account %s daily-create-limit; cooldown 24h set (auto recovers)", email)
 			}
 		}
@@ -351,6 +353,17 @@ func accountDailyCooldownActive(cfg AppConfig, accountEmail string) (bool, time.
 		}
 	}
 	return false, time.Time{}
+}
+
+
+// isTransientCreate429：Notion 建空间的 429 有两种——频率限("recently submitted")与日额度用尽。
+// 频率限允许几分钟后重试，不该打账号 24h 冷却（2026-08-31 实测误伤新注册账号）。
+func isTransientCreate429(err error) bool {
+	var apiErr *notionAPIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.Message), "recently submitted")
 }
 
 // markAccountDailyCooldown — 标记账号冷却（不删号；冷却过期自动恢复）

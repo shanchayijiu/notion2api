@@ -147,8 +147,11 @@ func (a *App) createPoolSpace(ctx context.Context, cfg AppConfig, acc NotionAcco
 	if err != nil {
 		var apiErr *notionAPIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
-			// 每日建空间上限：标记账号 24h 冷却（复用轮换路径同款处理）
-			rotator.markAccountDailyCooldown(cfg, acc.Email, 24*time.Hour)
+			// 频率限（"recently submitted"）不打 24h 冷却（仅此误判把新注册号锁死一整天）；
+			// 仅真正的每日上限才标记
+			if !isTransientCreate429(err) {
+				rotator.markAccountDailyCooldown(cfg, acc.Email, 24*time.Hour)
+			}
 		}
 		return err
 	}
