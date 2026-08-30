@@ -450,14 +450,15 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		return registerGoResult{}, fmt.Errorf("%d 次邮箱重试都没成 sendTemporaryPassword", registerMaxEmailAttempts)
 	}
 
-	// Step 5: 拿 6 位验证码
+	// Step 5: 拿 6 位验证码（notBefore = sendTemporaryPassword 成功时刻；复用邮箱时排除历史邮件）
+	notBefore := time.Now().Add(-30 * time.Second)
 	trace.log(map[string]any{"step": 5, "action": "wait_for_code_start", "provider": mailProvider})
 	var code string
 	var codeErr error
 	if mailProvider == "adguard" {
-		code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB)
+		code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB, notBefore)
 	} else {
-		code, codeErr = mailTmWaitCode(ctx, mailAcc)
+		code, codeErr = mailTmWaitCode(ctx, mailAcc, notBefore)
 	}
 	if codeErr != nil || code == "" {
 		trace.log(map[string]any{"step": 5, "action": "no_code", "err": fmt.Sprint(codeErr)})

@@ -11,10 +11,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"fmt"
 	"html"
 	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -77,7 +79,7 @@ type mailTmAccount struct {
 
 // mailTmGenerate — 建 mail.tm 临时邮箱（GET /domains 随机挑活跃域 → POST /accounts → POST /token）
 func mailTmGenerate(ctx context.Context, proxy string) (mailTmAccount, error) {
-	hc, err := newSurfStdClient(proxy)
+	hc, err := newRegisterPlainClient(proxy)
 	if err != nil {
 		return mailTmAccount{}, fmt.Errorf("mailtm client: %w", err)
 	}
@@ -87,17 +89,15 @@ func mailTmGenerate(ctx context.Context, proxy string) (mailTmAccount, error) {
 	if err != nil {
 		return mailTmAccount{}, fmt.Errorf("mailtm domains: %w", err)
 	}
-	var dj struct {
-		Members []struct {
-			Domain   string `json:"domain"`
-			IsActive bool   `json:"isActive"`
-		} `json:"hydra:member"`
+	var members []mailTmDomain
+	for _, m := range decodeHydraOrList(raw) {
+		if d, ok := m["domain"].(string); ok {
+			active, _ := m["isActive"].(bool)
+			members = append(members, mailTmDomain{Domain: d, IsActive: active})
+		}
 	}
-	if uerr := json.Unmarshal(raw, &dj); uerr != nil {
-		return mailTmAccount{}, fmt.Errorf("mailtm domains parse: %w body=%s", uerr, truncateBytes(raw, 200))
-	}
-	domains := make([]string, 0, len(dj.Members))
-	for _, d := range dj.Members {
+	domains := make([]string, 0, len(members))
+	for _, d := range members {
 		if d.IsActive && strings.TrimSpace(d.Domain) != "" {
 			domains = append(domains, d.Domain)
 		}
@@ -126,43 +126,47 @@ func mailTmGenerate(ctx context.Context, proxy string) (mailTmAccount, error) {
 	return mailTmAccount{Address: address, Token: tj.Token, HTTP: hc}, nil
 }
 
-// mailTmWaitCode — 轮询收件箱直到 Notion 验证码（超时 180s / 间隔 4s，对齐 Python）
-func mailTmWaitCode(ctx context.Context, acc mailTmAccount) (string, error) {
+// mailTmWaitCode — 轮询收件箱直到 Notion 验证码（超时 180s / 间隔 4s，对齐 Python）。
+// 只看 notBefore 之后到达的邮件（复用邮箱时排除历史 Notion 验证码）。
+func mailTmWaitCode(ctx context.Context, acc mailTmAccount, notBefore time.Time) (string, error) {
 	deadline := time.Now().Add(180 * time.Second)
 	seen := map[string]bool{}
+	polls := 0
 	for time.Now().Before(deadline) {
+		polls++
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, mailTmBase+"/messages?page=1", nil)
 		req.Header.Set("Authorization", "Bearer "+acc.Token)
 		req.Header.Set("Accept", "application/ld+json")
 		resp, err := acc.HTTP.Do(req)
+		if err != nil {
+			log.Printf("[register_mail] mailtm poll #%d mailbox=%s error: %v", polls, acc.Address, err)
+		}
 		if err == nil {
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				var mj struct {
-					Members []struct {
-						ID      string `json:"id"`
-						Subject string `json:"subject"`
-						Text    string `json:"text"`
-					} `json:"hydra:member"`
-				}
-				if uerr := json.Unmarshal(raw, &mj); uerr == nil {
-					for _, m := range mj.Members {
-						if m.ID == "" || seen[m.ID] {
-							continue
+				for _, m := range decodeHydraOrList(raw) {
+					id, _ := m["id"].(string)
+					subject, _ := m["subject"].(string)
+					text, _ := m["text"].(string)
+					if id == "" || seen[id] {
+						continue
+					}
+					seen[id] = true
+					if ts, ok := m["createdAt"].(string); ok {
+						if rt := parseRFC3339Loose(ts); !rt.IsZero() && rt.Before(notBefore) {
+							continue // 历史邮件（复用邮箱），跳过
 						}
-						seen[m.ID] = true
-						hay := m.Subject + "\n" + stripHTML(m.Text)
-						if !strings.Contains(strings.ToLower(hay), "notion") {
-							continue
-						}
-						code := extractNotionCode(hay)
-						if code == "" {
-							code = extractNotionCode(m.Text)
-						}
-						if code != "" {
-							return code, nil
-						}
+					}
+					hay := subject + "\n" + stripHTML(text)
+					if !strings.Contains(strings.ToLower(hay), "notion") {
+						continue
+					}
+					if code := extractNotionCode(hay); code != "" {
+						return code, nil
+					}
+					if code := extractNotionCode(text); code != "" {
+						return code, nil
 					}
 				}
 			}
@@ -239,9 +243,9 @@ func adguardPickMailbox(mailboxesDir string, detailRoot string) (adguardMailbox,
 
 // adguardWaitCode — 轮询 AdGuard 收信（GET /messages?since_message_id=0 + /message/<id>，
 // cookie: user+mailbox；对齐 Python：超时 420s / 间隔 20s）。
-func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox) (string, error) {
+func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox, notBefore time.Time) (string, error) {
 	const apiHome = "https://tempmail.adguard.com"
-	hc, err := newSurfStdClient(proxy)
+	hc, err := newRegisterPlainClient(proxy)
 	if err != nil {
 		return "", err
 	}
@@ -259,14 +263,20 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox) (stri
 	}
 	deadline := time.Now().Add(420 * time.Second)
 	seen := map[string]bool{}
+	polls := 0
 	for time.Now().Before(deadline) {
+		polls++
 		raw, err := registerHTTPGet(ctx, hc, apiHome+"/messages?since_message_id=0")
+		if err != nil {
+			log.Printf("[register_mail] adguard poll #%d mailbox=%s error: %v", polls, mb.Address, err)
+		}
 		if err == nil {
 			var mj struct {
 				Emails []struct {
 					MessageID string `json:"message_id"`
 					Subject   string `json:"subject"`
 					Snippet   string `json:"snippet"`
+					TimeAdded string `json:"time_added"`
 				} `json:"emails"`
 			}
 			if uerr := json.Unmarshal(raw, &mj); uerr == nil {
@@ -275,6 +285,9 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox) (stri
 						continue
 					}
 					seen[e.MessageID] = true
+					if rt := parseRFC3339Loose(e.TimeAdded); !rt.IsZero() && rt.Before(notBefore) {
+						continue // 历史邮件（复用邮箱），跳过
+					}
 					content := e.Snippet
 					if full, ferr := registerHTTPGet(ctx, hc, apiHome+"/message/"+e.MessageID); ferr == nil {
 						var fj struct {
@@ -295,6 +308,7 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox) (stri
 				}
 			}
 		}
+		log.Printf("[register_mail] adguard poll #%d mailbox=%s seen_msgs=%d", polls, mb.Address, len(seen))
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
@@ -302,4 +316,62 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox) (stri
 		}
 	}
 	return "", fmt.Errorf("adguard: no notion verification code within timeout")
+}
+
+// ── mail.tm 响应解码（hydra ld+json 与 plain JSON 两种形态都出现）───────────
+
+type mailTmDomain struct {
+	Domain   string
+	IsActive bool
+}
+
+// decodeHydraOrList — 兼容 {"hydra:member":[...]} 与直接 [...] 两种响应
+func decodeHydraOrList(raw []byte) []map[string]any {
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list
+	}
+	var env struct {
+		Members []map[string]any `json:"hydra:member"`
+	}
+	if err := json.Unmarshal(raw, &env); err == nil {
+		return env.Members
+	}
+	return nil
+}
+
+// newRegisterPlainClient — 邮服务的纯 net/http 客户端（不走 surf 指纹：
+// surf 强制浏览器 Accept 头会让 mail.tm 内容协商成 XML；mail.tm/adguard 均无 Chrome 指纹要求）。
+// 仅代理转发 + cookie jar，对齐 Python curl_cffi 在此处的行为。
+func newRegisterPlainClient(proxy string) (*http.Client, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	transport := &http.Transport{
+		Proxy: nil,
+		ForceAttemptHTTP2: true,
+	}
+	if strings.TrimSpace(proxy) != "" {
+		u, perr := url.Parse(proxy)
+		if perr != nil {
+			return nil, fmt.Errorf("parse proxy %s: %w", proxy, perr)
+		}
+		transport.Proxy = http.ProxyURL(u)
+	}
+	return &http.Client{Transport: transport, Jar: jar, Timeout: 30 * time.Second}, nil
+}
+
+// parseRFC3339Loose — 宽松解析 RFC3339 / "2006-01-02 15:04:05" 两种格式
+func parseRFC3339Loose(v string) time.Time {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }

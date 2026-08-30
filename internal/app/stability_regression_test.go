@@ -526,7 +526,7 @@ func TestSpaceCooldownLifecycle(t *testing.T) {
 	_ = store.SaveSpaceLifecycle(SpaceLifecycle{SpaceID: "sp2", AccountEmail: email, Status: "active", SpaceViewID: "v2"})
 	// 额度耗尽 → cooldown（过期时间过去 = 已可恢复）
 	past := time.Now().Add(-time.Minute)
-	if err := store.SetSpaceLifecycleCooldown("sp1", past); err != nil {
+	if err := store.SetSpaceLifecycleCooldown("sp1", email, past); err != nil {
 		t.Fatalf("set cooldown: %v", err)
 	}
 	// 恢复定时器语义（直接调存储层：App 层面只是遍历调用）

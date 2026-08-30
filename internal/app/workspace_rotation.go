@@ -115,19 +115,11 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 	if active, until := accountDailyCooldownActive(cfg, email); active {
 		return session, fmt.Errorf("workspace rotation: account cooling down until %s (daily limit; auto recovers)", until.Format(time.RFC3339))
 	}
-	if r.store != nil {
-		recent, err := r.store.LoadSpaceLifecycles(email, spaceStatusActive)
-		if err == nil && len(recent) > 0 {
-			if last := parseLifecycleTime(recent[0].CreatedAt); !last.IsZero() && time.Since(last) < rotateMinInterval {
-				return session, fmt.Errorf("workspace rotation throttled: last create at %s, min interval %s",
-					last.Format(time.RFC3339), rotateMinInterval)
-			}
-		}
-	}
 	client := newNotionAIClient(session, cfg, accountEmail)
 
 	// 配额池模式（space_pool.enabled）：轮换优先复用池内已存在的 active 空间
 	//（预建池 / 冷却恢复的空间），不触发 createspace、不消耗每日建空间额度。
+	// 必须在 createspace 节流之前：复用不建空间，吃节流会把轮换打死（2026-08-31 实测）。
 	if cfg.ResolveSpacePool().Enabled {
 		if nextID, nextViewID, ok := r.pickReusableSpace(session.SpaceID, email); ok {
 			session.SpaceID = nextID
@@ -141,6 +133,16 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 			return session, nil
 		}
 		log.Printf("[workspace_rotation] pool empty for %s; falling back to createspace", email)
+	}
+
+	if r.store != nil {
+		recent, err := r.store.LoadSpaceLifecycles(email, spaceStatusActive)
+		if err == nil && len(recent) > 0 {
+			if last := parseLifecycleTime(recent[0].CreatedAt); !last.IsZero() && time.Since(last) < rotateMinInterval {
+				return session, fmt.Errorf("workspace rotation throttled: last create at %s, min interval %s",
+					last.Format(time.RFC3339), rotateMinInterval)
+			}
+		}
 	}
 
 	// 轮换是恢复动作，用独立更长超时（不继承请求 60s 预算；createspace 响应可能 30-90s）
@@ -509,7 +511,7 @@ func (r *WorkspaceRotator) MarkSpaceCooldown(spaceID string, accountEmail string
 	if r == nil || r.store == nil || strings.TrimSpace(spaceID) == "" {
 		return
 	}
-	if err := r.store.SetSpaceLifecycleCooldown(spaceID, until); err != nil {
+	if err := r.store.SetSpaceLifecycleCooldown(spaceID, accountEmail, until); err != nil {
 		log.Printf("[workspace_pool] mark cooldown failed space=%s: %v", spaceID, err)
 	}
 }

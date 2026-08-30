@@ -315,3 +315,43 @@ python research\_probe_tool.py                                  # 工具闭环�
 - **已稳主路径回归**：go test 全绿（多次连跑）；服务重建+重启（指纹 64674c7e2d97）；smoke 通过。
 - **下一步**：E3 金丝雀 T-09（review round 4 指令，启动清单在 §3）。
 - ⚠️ 号源风险：注册机域被拒 + 主号被限 → 已换 mt88 激活，见 §3。
+
+## 循环工作流 #8（2026-08-30）：纯 Go 注册链 + 空间配额恢复轮换池
+
+### 本轮交付
+- **纯 Go 注册链落地**（register_chain.go / register_mail.go）：完整对齐
+  notion注册机/register/notion_register_proto.py 9 步协议，替换 register_provider.go
+  的 Python 子进程调用；Docker 容器内原生运行，无 python/playwright 依赖。
+  - 邮箱源：mail.tm（纯 HTTP 创建+JWT+轮询收信，默认）/ adguard（纯 HTTP 收信，
+    复用已建 mailbox cookie 文件 —— 建 mailbox 需 capjs 浏览器，Go 端不支持新建，只消费存量）
+  - invalid_email_domain 语义完整保留：clientData.type=invalid_email_domain /
+    UserValidationError → 加入坏域集合 → 换邮箱重试，上限 5 次
+  - invite 模式无可 join 空间时新增 Go 端 createspace(personal) 兜底（Python 侧原为 TODO 洞口）
+  - 落盘格式完全兼容：probe.json（含 models blob）/ account.json / trace_*.jsonl / 桶 accounts.txt（50/桶）
+- **空间配额恢复轮换池**（space_pool，workspace_pool.go）：
+  - space_lifecycle 新列 space_view_id + cooldown_until（在线迁移）
+  - 额度耗尽 → 标记 cooldown（默认 60min，可配 cooldown_minutes）→ 定时器到点自动恢复 active
+  - Rotate 优先复用池内 active 空间（不触发 createspace）；池空才走 createspace 老路径
+  - 每号预建到 target_per_account（默认 3）——创建走保守节流（10min/号/次），不动 probe 当前指向
+  - 配置段：config.register.mail_provider/space_mode + config.space_pool.{enabled,...}
+- 容器部署升级：register.enabled=true（mailtm），space_pool.enabled=true（详见 config.docker.json）
+
+### 测试
+go build + vet 通过；回归套件 22 项全绿，新增 3 项：验证码提取 / 冷却生命周期+view 持久化 / pickReusableSpace 排除当前空间。
+
+### 遗留/观察项
+- **额度恢复周期实测未知**：cooldown_minutes 默认 60 是按号源笔记里的 "~1 小时恢复" 猜测值，
+  需上线观察（容器日志 [workspace_pool] recovered ...）后校准；logger 已带足够证据。
+- **GitHub push 缺凭证**：本轮 commit cdf8b17 已在本地 main，push 需要用户提供 token 或代理凭证。
+
+### 实测闭环（2026-08-31 凌晨，容器内全链路验证）
+- **注册**：concrete.sloth.ouah@hidesit.net 由纯 Go 注册链一次跑通
+  （adguard 投票 → sendTemporaryPassword → 收信 → loginWithEmail → createspace/join → probe.json）。
+  mail.tm 默认域 emalupe.com 目前被 Notion invalid_email_domain 拒（Single 域限制），adguard 为主用源。
+- **轮换**：joined business 空间 temporarily-unavailable → 标记 cooldown(+60min) →
+  Rotate **重用池内 active 空间**（修复：复用须先于 10min 建空间节流，否则节流把轮换打死）→ 重试 "PONG" 成功。
+- **冷却恢复**：人工将 cooldown_until 改到过点 → 巡检循环 120s 内自动恢复 active（日志 "recovered 1 cooldown space(s)"）。
+- **修补**：SetSpaceLifecycleCooldown 改 upsert（joined 空间不在表也能打冷却）；
+  adguard/mailtm 收信加 notBefore 时间过滤（复用邮箱排除历史验证码）+ 轮询日志。
+- **mail.tm 坑**：surf Chrome 指纹会强制浏览器 Accept 头，mail.tm 据此回 XML——
+  邮服务改用 net/http 纯客户端（newRegisterPlainClient），Notion 侧仍走 surf 指纹。

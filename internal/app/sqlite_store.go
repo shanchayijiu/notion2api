@@ -871,15 +871,19 @@ func (s *SQLiteStore) UpdateSpaceLifecycleStatus(spaceID string, status string) 
 }
 
 // SetSpaceLifecycleCooldown — 标记空间冷却（cooldown_until 到点自动恢复）
-func (s *SQLiteStore) SetSpaceLifecycleCooldown(spaceID string, until time.Time) error {
+func (s *SQLiteStore) SetSpaceLifecycleCooldown(spaceID string, accountEmail string, until time.Time) error {
 	startedAt := time.Now()
 	defer observeSQLiteDuration("set_space_lifecycle_cooldown", startedAt)
 	if s == nil || s.db == nil || strings.TrimSpace(spaceID) == "" {
 		return nil
 	}
+	// upsert：selfJoinSpaceByDomain 等路径的空间可能尚未入库（缺行也要能标记冷却）
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.Exec(
-		`UPDATE space_lifecycle SET status='cooldown', cooldown_until=?, updated_at=? WHERE space_id=?`,
-		until.UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(spaceID))
+		`INSERT INTO space_lifecycle(space_id, account_email, status, cooldown_until, created_at, updated_at)
+		 VALUES(?, ?, 'cooldown', ?, ?, ?)
+		 ON CONFLICT(space_id) DO UPDATE SET status='cooldown', cooldown_until=excluded.cooldown_until, updated_at=excluded.updated_at`,
+		strings.TrimSpace(spaceID), accountEmail, until.UTC().Format(time.RFC3339Nano), now, now)
 	return err
 }
 

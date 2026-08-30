@@ -12,6 +12,9 @@ ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
+# 构建代理可注入（默认官方）；大陆构建机传 --build-arg GOPROXY=https://goproxy.cn,direct
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 
 WORKDIR /src
 COPY go.mod go.sum ./
