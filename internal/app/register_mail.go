@@ -30,6 +30,9 @@ var (
 	reCodeGap   = regexp.MustCompile(`(?m)[^0-9]?([0-9]{3})\s([0-9]{3})[^0-9]?`)
 	reCodePlain = regexp.MustCompile(`[^0-9]([0-9]{6})[^0-9]`)
 	reHTMLTags  = regexp.MustCompile(`<[^>]+>`)
+	// 魔链变体：老账号常发 "Sign in with Magic Link"（正文无 6 位数字），
+	// 临时密码藏在 loginwithemail?...&password=<token>（2026-08-31 实测两种模板轮换投放）
+	reMagicLinkPassword = regexp.MustCompile(`loginwithemail[^"<>\s]*?password=([A-Za-z0-9_-]{4,32})`)
 )
 
 // extractNotionCode — 从邮件正文提取 6 位验证码（对齐 Python _extract_code）
@@ -58,6 +61,11 @@ func extractNotionCode(plain string) string {
 				return g
 			}
 		}
+	}
+	// 魔链变体兜底：老账号常收到 "Sign in with Magic Link"（正文无 6 位数字），
+	// 临时密码在 loginwithemail?...&password=<token>（2026-08-31 实测两种模板轮换投放）
+	if m := reMagicLinkPassword.FindStringSubmatch(plain); m != nil {
+		return m[1]
 	}
 	return ""
 }
@@ -158,7 +166,8 @@ func mailTmWaitCode(ctx context.Context, acc mailTmAccount, notBefore time.Time)
 							continue // 历史邮件（复用邮箱），跳过
 						}
 					}
-					hay := subject + "\n" + stripHTML(text)
+					// hay 含原始 HTML：魔链 email 的 password= 在 <a href> 属性里
+					hay := subject + "\n" + stripHTML(text) + "\n" + text
 					if !strings.Contains(strings.ToLower(hay), "notion") {
 						continue
 					}
@@ -301,7 +310,7 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox, notBe
 						}
 					}
 					plain := stripHTML(content)
-					hay := e.Subject + "\n" + plain
+					hay := e.Subject + "\n" + plain + "\n" + content
 					if !strings.Contains(strings.ToLower(hay), "notion") {
 						continue
 					}

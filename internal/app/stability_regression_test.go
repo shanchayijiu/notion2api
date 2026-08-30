@@ -425,6 +425,15 @@ func TestExtractNotionCode(t *testing.T) {
 			t.Fatalf("extractNotionCode(%q)=%q want %q", input, got, want)
 		}
 	}
+	magic := `<a href="https://app.notion.com/loginwithemail?state=v02%3Atemp_password%3Axyz&amp;password=mxaWKL&amp;isSignup=true"><b>Sign in with Magic Link</b></a>`
+	if got := extractNotionCode(magic); got != "mxaWKL" {
+		t.Fatalf("magic-link password not extracted: %q", got)
+	}
+	// 追踪像素 URL 里的 13 位十六进制不准误提码
+	pixel := `<img src="https://img.adtidy.org/image?hash=be44bdf65fbc40ea6388696724410b6c">`
+	if got := extractNotionCode(pixel); got != "" {
+		t.Fatalf("pixel hash falsely extracted: %q", got)
+	}
 }
 
 func TestResolveRegisterDefaults(t *testing.T) {
