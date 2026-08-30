@@ -592,26 +592,27 @@ gsiDone:
 						}
 					}
 				}
-				// 偏好 "XXX's Space" 的原始个人空间；其次任意空间
-				var first string
+				// 只收本账号建的空间（created_by_id == userID）：
+				// selfJoin 进来的共享空间（b17d 实测）quota 归属原订阅方，用完不回，
+				// 全账号群聚死撞同一陷阱。
+				var ownSpace string
 				for sid, sv := range spaces {
-					if first == "" {
-						first = sid
-					}
 					if sm, ok := sv.(map[string]any); ok {
-						if rec, ok := sm["value"].(map[string]any); ok {
-							if rec2, ok := rec["value"].(map[string]any); ok {
-								if nm, _ := rec2["name"].(string); strings.Contains(nm, "'s Space") {
-									spaceID = sid
-									break
-								}
-							}
+						rec, _ := sm["value"].(map[string]any)
+						rec2, _ := rec["value"].(map[string]any)
+						if rec2 == nil {
+							rec2 = rec
+						}
+						if cb, _ := rec2["createdById"].(string); cb == userID {
+							ownSpace = sid
+							break
 						}
 					}
 				}
-				if spaceID == "" {
-					spaceID = first
+				if ownSpace == "" {
+					trace.log(map[string]any{"step": 7, "action": "no_owned_space_skip_joined", "n_spaces": len(spaces)})
 				}
+				spaceID = ownSpace
 				if spaceID != "" {
 					spaceViewIDExisting = viewOf[spaceID]
 					trace.log(map[string]any{"step": 7, "action": "load_user_content_space", "space_id": spaceID, "space_view_id": spaceViewIDExisting, "n_spaces": len(spaces)})
