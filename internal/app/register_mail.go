@@ -219,8 +219,9 @@ func adguardPickMailbox(mailboxesDir string, detailRoot string) (adguardMailbox,
 			continue
 		}
 		address := stem[:at] + "@" + stem[at+4:]
-		// 跳过已产出账号的 mailbox（detail dir 已存在）
-		if fileExists(filepath.Join(detailRoot, strings.ReplaceAll(address, "/", "_"), "account.json")) {
+		// 只跳过注册成功的 mailbox（probe.json 存在才算销号成功；
+		// account.json 在失败路径也会落盘，不能据此永久报废还能用的 mailbox）
+		if fileExists(filepath.Join(detailRoot, strings.ReplaceAll(address, "/", "_"), "probe.json")) {
 			continue
 		}
 		raw, rerr := os.ReadFile(filepath.Join(mailboxesDir, name))
