@@ -24,7 +24,7 @@
   "poll_max_rounds": 40,
   "user_name": "",
   "space_name": "",
-  "debug_upstream": true,
+  "debug_upstream": false,
   "stream_chunk_runes": 24,
   "admin": {
     "enabled": true,
@@ -77,6 +77,16 @@
   },
   "browser": {
     "helper_pool_size": 0
+  },
+  "register": {
+    "enabled": false,
+    "script_dir": "",
+    "script_name": "batch_run_proto.py",
+    "python_bin": "python3",
+    "proxy": "",
+    "timeout_sec": 180,
+    "min_healthy_accounts": 1,
+    "check_interval_sec": 600
   },
   "debug": {
     "pprof_enabled": false,

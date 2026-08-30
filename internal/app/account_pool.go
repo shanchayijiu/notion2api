@@ -240,7 +240,12 @@ func (s *ServerState) startAutoRelogin(ctx context.Context, cfg AppConfig, accou
 	if accountReloginRecentlyStarted(account, now) {
 		return cfg, fmt.Errorf("auto relogin already started recently for %s", account.Email)
 	}
-	status, err := StartEmailLogin(ctx, cfg, LoginStartRequest{
+	// P1-6 修复：登录流（发验证码邮件等）用脱离请求生命周期的独立 ctx，
+	// 请求 60s 预算到期/客户端断连不再腰斩登录（否则 pending 标记已写但流程没走完，
+	// 5min 内又被 accountReloginRecentlyStarted 挡住，账号长期卡 expired）。
+	loginCtx, cancel := context.WithTimeout(context.Background(), helperTimeout(cfg)+30*time.Second)
+	defer cancel()
+	status, err := StartEmailLogin(loginCtx, cfg, LoginStartRequest{
 		Email:            account.Email,
 		ProfileDir:       account.ProfileDir,
 		PendingPath:      account.PendingStatePath,
@@ -248,14 +253,34 @@ func (s *ServerState) startAutoRelogin(ctx context.Context, cfg AppConfig, accou
 		AccountEmail:     account.Email,
 	})
 	account = mergeAccountWithStatus(cfg, account, status)
-	account = markAccountReloginPending(account, now)
+	// P0-4 联动:P1-6 的 pending 标记本来随 dispatch 失败路径顺带落盘,改 MutateAccount
+	// 后该路径以"最新账号"基线记账会丢失此标记 → 重登状态必须即时、显式持久化
 	if err != nil {
+		// P1-6 修复：启动失败不写 LastReloginAt，下个请求可立即重试
+		// （原来失败也打 pending 标记 → 5min 内重试全部被挡）
 		account.LastError = firstNonEmpty(status.Error, status.Message, err.Error())
 		cfg = applyAccountUpdate(cfg, account, false)
+		if _, perr := s.MutateAccount(account.Email, false, func(cur NotionAccount) NotionAccount {
+			cur.LastError = account.LastError
+			return cur
+		}); perr != nil {
+			log.Printf("[auto-relogin] persist error state for %s failed: %v", account.Email, perr)
+		}
 		return cfg, fmt.Errorf("auto relogin start failed for %s (%s): %w", account.Email, reason, err)
 	}
+	account = markAccountReloginPending(account, now)
 	account.LastError = ""
 	cfg = applyAccountUpdate(cfg, account, false)
+	if _, perr := s.MutateAccount(account.Email, false, func(cur NotionAccount) NotionAccount {
+		cur.LastReloginAt = account.LastReloginAt
+		cur.PendingStatePath = account.PendingStatePath
+		cur.StorageStatePath = account.StorageStatePath
+		cur.Status = account.Status
+		cur.LastError = ""
+		return cur
+	}); perr != nil {
+		log.Printf("[auto-relogin] persist pending state for %s failed: %v", account.Email, perr)
+	}
 	return cfg, fmt.Errorf("verification code required for %s; auto relogin started (%s)", account.Email, reason)
 }
 
@@ -312,14 +337,38 @@ func (a *App) runPromptWithSessionWithSink(ctx context.Context, cfg AppConfig, s
 	return a.executePromptWithRotation(ctx, cfg, session, accountEmail, request, sink, execute)
 }
 
-// executePromptWithRotation — 执行 + quota-exhausted 自动轮换重试（最多一次）
-// 流式场景：只在未吐出任何内容前失败才重试，避免重复输出。
 // executePromptWithRotation — 执行 + 限制类错自动轮换重试（最多一次）
 // 触发：quota-exhausted / temporarily-unavailable / errAccountStarved（CORE_PRINCIPLES §4 用户拍板）
-// 流式场景：只在未吐出任何内容前失败才重试，避免重复输出。
+// 轮换入口的唯一实现（dispatch 层的重复/死分支已删除，2026 审计 P0-3）。
+// 流式护栏（P1-1/P1-5 修复）：执行期间已向客户端吐出任何内容（正文/推理）则不再轮换重播，
+// 原样上抛错误——否则客户端会收到「前半段 + 重复完整回答」。
 func (a *App) executePromptWithRotation(ctx context.Context, cfg AppConfig, session SessionInfo, accountEmail string, request PromptRunRequest, sink InferenceStreamSink, execute func(context.Context, PromptRunRequest, func(string) error) (InferenceResult, error)) (InferenceResult, error) {
-	result, err := execute(ctx, request, sink.Text)
+	emitted := false
+	guarded := sink
+	if sink.Text != nil {
+		inner := sink.Text
+		guarded.Text = func(delta string) error {
+			if delta != "" {
+				emitted = true
+			}
+			return inner(delta)
+		}
+	}
+	if sink.Reasoning != nil {
+		inner := sink.Reasoning
+		guarded.Reasoning = func(delta string) error {
+			if delta != "" {
+				emitted = true
+			}
+			return inner(delta)
+		}
+	}
+	result, err := execute(ctx, request, guarded.Text)
 	if err == nil || a.rotator == nil || !IsRotationWorthyError(err) {
+		return result, err
+	}
+	if emitted {
+		// 已吐出内容：轮换重播会造成重复输出，直接上抛原始错误（dispatch 层按 emittedAny 处理）
 		return result, err
 	}
 	log.Printf("[workspace_rotation] quota-exhausted detected account=%s space=%s -> rotating", accountEmail, session.SpaceID)
@@ -339,11 +388,11 @@ func (a *App) executePromptWithRotation(ctx context.Context, cfg AppConfig, sess
 			return client2.RunPrompt(ctx, current)
 		}
 		return client2.RunPromptStreamWithSink(ctx, current, InferenceStreamSink{
-			Text:            sink.Text,
-			Reasoning:       sink.Reasoning,
-			ReasoningWarmup: sink.ReasoningWarmup,
-			KeepAlive:       sink.KeepAlive,
+			Text:            guarded.Text,
+			Reasoning:       guarded.Reasoning,
+			ReasoningWarmup: guarded.ReasoningWarmup,
+			KeepAlive:       guarded.KeepAlive,
 		})
 	}
-	return execute2(ctx, request, sink.Text)
+	return execute2(ctx, request, guarded.Text)
 }

@@ -23,6 +23,30 @@ const (
 
 var errDispatchCapacityExceeded = errors.New("dispatch capacity exceeded")
 
+// errNoEligibleAccounts — 哨兵错误：账号池无任何 eligible 候选（全员冷却/无制品）。
+// dispatch 据此走半开探测兜底（P0-1 修复），与"客户端显式 pin 的账号不可用"区分。
+var errNoEligibleAccounts = errors.New("no eligible accounts in pool")
+
+// buildHalfOpenCandidates — 半开探测候选：跳过 disabled（尊重管理员意图），
+// 其余按冷却到期时间升序（最早到期的优先放行一次，避免全员冷却 = 全线不可用）。
+func buildHalfOpenCandidates(cfg AppConfig) []NotionAccount {
+	half := make([]NotionAccount, 0, len(cfg.Accounts))
+	for _, acc := range cfg.Accounts {
+		if acc.Disabled {
+			continue
+		}
+		acc = ensureAccountPaths(cfg, acc)
+		if !accountHasUsableArtifacts(cfg, acc) {
+			continue
+		}
+		half = append(half, acc)
+	}
+	sort.SliceStable(half, func(i, j int) bool {
+		return accountCooldownExpiry(half[i]).Before(accountCooldownExpiry(half[j]))
+	})
+	return half
+}
+
 var transportClientNewTotalMetric = expvar.NewMap("notion2api_transport_client_new_total")
 
 type probeCacheEntry struct {
@@ -114,7 +138,7 @@ func streamRequestTimeout(cfg AppConfig) time.Duration {
 }
 
 func noEligibleAccountsError() error {
-	return fmt.Errorf("no usable accounts available; check disabled state, local artifacts, or login status")
+	return fmt.Errorf("%w: check disabled state, local artifacts, or login status", errNoEligibleAccounts)
 }
 
 func noDispatchCapacityError() error {
@@ -483,7 +507,22 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 		candidates, err = resolveDispatchCandidates(cfg, request, now)
 	}
 	if err != nil {
-		return InferenceResult{}, err
+		// P0-1 修复：「全员冷却/无 eligible 候选」不再直接报错（此前半开分支是死代码，
+		// 全员冷却期最长 30min 全线 502）。仅当错误确为"池内无 eligible"时回落半开：
+		// 按冷却到期最早者优先放行一次；客户端显式 pin 的账号错误仍直接返回。
+		if errors.Is(err, errNoEligibleAccounts) && len(cfg.Accounts) > 0 {
+			candidates = buildHalfOpenCandidates(cfg)
+			if len(candidates) > 0 {
+				log.Printf("[dispatch] no eligible account, half-open fallback with %d candidate(s)", len(candidates))
+				err = nil
+			}
+		}
+		if err != nil {
+			return InferenceResult{}, err
+		}
+	}
+	if len(candidates) == 0 {
+		return InferenceResult{}, noEligibleAccountsError()
 	}
 	candidateEmails := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -491,23 +530,6 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 	}
 	if a.State.AvailableDispatchCapacity(candidateEmails) <= 0 {
 		return InferenceResult{}, noDispatchCapacityError()
-	}
-
-	// 半开探测：全部账号在冷却期（无 eligible 候选）时，仍放行一次——
-	// 按冷却到期时间最早者优先，避免全员冷却导致 30min 全线不可用。
-	if len(candidates) == 0 && len(cfg.Accounts) > 0 {
-		half := make([]NotionAccount, 0, len(cfg.Accounts))
-		for _, acc := range cfg.Accounts {
-			acc = ensureAccountPaths(cfg, acc)
-			if accountHasUsableArtifacts(cfg, acc) {
-				half = append(half, acc)
-			}
-		}
-		sort.SliceStable(half, func(i, j int) bool {
-			return accountCooldownExpiry(half[i]).Before(accountCooldownExpiry(half[j]))
-		})
-		candidates = half
-		log.Printf("[dispatch] no eligible account, half-open fallback with %d candidate(s)", len(candidates))
 	}
 
 	emittedAny := false
@@ -537,15 +559,23 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 					slotAcquired = false
 				}
 				result.AccountEmail = account.Email
-				account.UserID = firstNonEmpty(session.UserID, account.UserID)
-				account.UserName = firstNonEmpty(session.UserName, account.UserName)
-				account.SpaceID = firstNonEmpty(session.SpaceID, account.SpaceID)
-				account.SpaceViewID = firstNonEmpty(session.SpaceViewID, account.SpaceViewID)
-				account.SpaceName = firstNonEmpty(session.SpaceName, account.SpaceName)
-				account.ClientVersion = firstNonEmpty(session.ClientVersion, account.ClientVersion)
-				account = markAccountDispatchSuccess(account, time.Now())
-				nextCfg := applyAccountUpdate(cfg, account, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email))
-				if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
+				// P0-4:锁内取最新账号再变换,并发请求不会互相覆盖计数
+				userID := firstNonEmpty(session.UserID, account.UserID)
+				userName := firstNonEmpty(session.UserName, account.UserName)
+				spaceID := firstNonEmpty(session.SpaceID, account.SpaceID)
+				spaceViewID := firstNonEmpty(session.SpaceViewID, account.SpaceViewID)
+				spaceName := firstNonEmpty(session.SpaceName, account.SpaceName)
+				clientVersion := firstNonEmpty(session.ClientVersion, account.ClientVersion)
+				succeededAt := time.Now()
+				if _, saveErr := a.State.MutateAccount(account.Email, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email), func(cur NotionAccount) NotionAccount {
+					cur.UserID = userID
+					cur.UserName = userName
+					cur.SpaceID = spaceID
+					cur.SpaceViewID = spaceViewID
+					cur.SpaceName = spaceName
+					cur.ClientVersion = clientVersion
+					return markAccountDispatchSuccess(cur, succeededAt)
+				}); saveErr != nil {
 					return InferenceResult{}, saveErr
 				}
 				return result, nil
@@ -583,15 +613,22 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 										retrySlotAcquired = false
 									}
 									result.AccountEmail = refreshedAccount.Email
-									refreshedAccount.UserID = firstNonEmpty(refreshedSession.UserID, refreshedAccount.UserID)
-									refreshedAccount.UserName = firstNonEmpty(refreshedSession.UserName, refreshedAccount.UserName)
-									refreshedAccount.SpaceID = firstNonEmpty(refreshedSession.SpaceID, refreshedAccount.SpaceID)
-									refreshedAccount.SpaceViewID = firstNonEmpty(refreshedSession.SpaceViewID, refreshedAccount.SpaceViewID)
-									refreshedAccount.SpaceName = firstNonEmpty(refreshedSession.SpaceName, refreshedAccount.SpaceName)
-									refreshedAccount.ClientVersion = firstNonEmpty(refreshedSession.ClientVersion, refreshedAccount.ClientVersion)
-									refreshedAccount = markAccountDispatchSuccess(refreshedAccount, time.Now())
-									nextCfg := applyAccountUpdate(cfg, refreshedAccount, shouldPersistDispatchedAccountAsActive(cfg, request, refreshedAccount.Email))
-									if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
+									rUserID := firstNonEmpty(refreshedSession.UserID, refreshedAccount.UserID)
+									rUserName := firstNonEmpty(refreshedSession.UserName, refreshedAccount.UserName)
+									rSpaceID := firstNonEmpty(refreshedSession.SpaceID, refreshedAccount.SpaceID)
+									rSpaceViewID := firstNonEmpty(refreshedSession.SpaceViewID, refreshedAccount.SpaceViewID)
+									rSpaceName := firstNonEmpty(refreshedSession.SpaceName, refreshedAccount.SpaceName)
+									rClientVersion := firstNonEmpty(refreshedSession.ClientVersion, refreshedAccount.ClientVersion)
+									rSucceededAt := time.Now()
+									if _, saveErr := a.State.MutateAccount(refreshedAccount.Email, shouldPersistDispatchedAccountAsActive(cfg, request, refreshedAccount.Email), func(cur NotionAccount) NotionAccount {
+										cur.UserID = rUserID
+										cur.UserName = rUserName
+										cur.SpaceID = rSpaceID
+										cur.SpaceViewID = rSpaceViewID
+										cur.SpaceName = rSpaceName
+										cur.ClientVersion = rClientVersion
+										return markAccountDispatchSuccess(cur, rSucceededAt)
+									}); saveErr != nil {
 										return InferenceResult{}, saveErr
 									}
 									return result, nil
@@ -618,30 +655,8 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 			return InferenceResult{}, err
 		}
 
-		// CORE_PRINCIPLES §4（用户拍板）：限制类错（starve/temporarily-unavailable/quota）→
-		// 轮换引擎新建空间续聊，不固定冷却、不换号。仅未吐出内容时重试一次（防重复输出）。
-		if a.rotator != nil && !emittedAny && slotAcquired && IsRotationWorthyError(err) {
-			if newSession, rotateErr := a.rotator.Rotate(ctx, cfg, session); rotateErr == nil {
-				log.Printf("[dispatch] rotated account=%s new_space=%s retrying (限制类错恢复)", account.Email, newSession.SpaceID)
-				if retryResult, retryErr := a.runPromptWithSession(ctx, cfg, newSession, account.Email, request, wrappedDelta); retryErr == nil {
-					a.State.ReleaseAccountDispatchSlot(account.Email)
-					slotAcquired = false
-					retryResult.AccountEmail = account.Email
-					account.SpaceID = firstNonEmpty(newSession.SpaceID, account.SpaceID)
-					account.SpaceViewID = firstNonEmpty(newSession.SpaceViewID, account.SpaceViewID)
-					account = markAccountDispatchSuccess(account, time.Now())
-					nextCfg := applyAccountUpdate(cfg, account, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email))
-					if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
-						return InferenceResult{}, saveErr
-					}
-					return retryResult, nil
-				} else {
-					err = retryErr
-				}
-			} else {
-				log.Printf("[dispatch] rotate failed for %s: %v", account.Email, rotateErr)
-			}
-		}
+		// 轮换重试已收口至 executePromptWithRotation(account_pool.go)——
+		// 此处原代码因 slot 已释放(slotAcquired 恒 false)为死代码,且与其重复实现,已删除(2026 审计 P0-3)。
 
 		// 账号级故障（被上游标记/无产出）：明确非 retryable，进入冷却并换下一个候选
 		if errors.Is(err, errAccountStarved) {
@@ -657,9 +672,23 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 			}
 		}
 
-		account = markAccountDispatchFailure(account, time.Now(), err, retryable)
+		// P1-2 修复：本地并发容量不足（slot 被其他请求抢占）不是账号健康信号——
+		// 不计失败数、不置 failed、不进冷却，直接记录并试下一个候选。
+		if isDispatchCapacityExceededError(err) {
+			lastErr = fmt.Errorf("%s: %w", account.Email, err)
+			continue
+		}
+		// P0-4:锁内取最新账号记账(并发下计数/冷却不互冲);local cfg 只更新本循环视图
+		failedAt := time.Now()
+		recorded, saveErr := a.State.MutateAccount(account.Email, false, func(cur NotionAccount) NotionAccount {
+			return markAccountDispatchFailure(cur, failedAt, err, retryable)
+		})
+		if saveErr != nil {
+			log.Printf("[dispatch] persist failure state for %s failed: %v (cooldown may be lost)", account.Email, saveErr)
+		} else {
+			account = recorded
+		}
 		cfg = applyAccountUpdate(cfg, account, false)
-		_ = a.State.SaveAndApply(cfg)
 		lastErr = fmt.Errorf("%s: %w", account.Email, err)
 		if emittedAny {
 			return InferenceResult{}, lastErr
@@ -699,7 +728,22 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 		candidates, err = resolveDispatchCandidates(cfg, request, now)
 	}
 	if err != nil {
-		return InferenceResult{}, err
+		// P0-1 修复：「全员冷却/无 eligible 候选」不再直接报错（此前半开分支是死代码，
+		// 全员冷却期最长 30min 全线 502）。仅当错误确为"池内无 eligible"时回落半开：
+		// 按冷却到期最早者优先放行一次；客户端显式 pin 的账号错误仍直接返回。
+		if errors.Is(err, errNoEligibleAccounts) && len(cfg.Accounts) > 0 {
+			candidates = buildHalfOpenCandidates(cfg)
+			if len(candidates) > 0 {
+				log.Printf("[dispatch] no eligible account, half-open fallback with %d candidate(s)", len(candidates))
+				err = nil
+			}
+		}
+		if err != nil {
+			return InferenceResult{}, err
+		}
+	}
+	if len(candidates) == 0 {
+		return InferenceResult{}, noEligibleAccountsError()
 	}
 	candidateEmails := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -707,23 +751,6 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 	}
 	if a.State.AvailableDispatchCapacity(candidateEmails) <= 0 {
 		return InferenceResult{}, noDispatchCapacityError()
-	}
-
-	// 半开探测：全部账号在冷却期（无 eligible 候选）时，仍放行一次——
-	// 按冷却到期时间最早者优先，避免全员冷却导致 30min 全线不可用。
-	if len(candidates) == 0 && len(cfg.Accounts) > 0 {
-		half := make([]NotionAccount, 0, len(cfg.Accounts))
-		for _, acc := range cfg.Accounts {
-			acc = ensureAccountPaths(cfg, acc)
-			if accountHasUsableArtifacts(cfg, acc) {
-				half = append(half, acc)
-			}
-		}
-		sort.SliceStable(half, func(i, j int) bool {
-			return accountCooldownExpiry(half[i]).Before(accountCooldownExpiry(half[j]))
-		})
-		candidates = half
-		log.Printf("[dispatch] no eligible account, half-open fallback with %d candidate(s)", len(candidates))
 	}
 
 	emittedAny := false
@@ -767,15 +794,23 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 					slotAcquired = false
 				}
 				result.AccountEmail = account.Email
-				account.UserID = firstNonEmpty(session.UserID, account.UserID)
-				account.UserName = firstNonEmpty(session.UserName, account.UserName)
-				account.SpaceID = firstNonEmpty(session.SpaceID, account.SpaceID)
-				account.SpaceViewID = firstNonEmpty(session.SpaceViewID, account.SpaceViewID)
-				account.SpaceName = firstNonEmpty(session.SpaceName, account.SpaceName)
-				account.ClientVersion = firstNonEmpty(session.ClientVersion, account.ClientVersion)
-				account = markAccountDispatchSuccess(account, time.Now())
-				nextCfg := applyAccountUpdate(cfg, account, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email))
-				if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
+				// P0-4:锁内取最新账号再变换,并发请求不会互相覆盖计数
+				userID := firstNonEmpty(session.UserID, account.UserID)
+				userName := firstNonEmpty(session.UserName, account.UserName)
+				spaceID := firstNonEmpty(session.SpaceID, account.SpaceID)
+				spaceViewID := firstNonEmpty(session.SpaceViewID, account.SpaceViewID)
+				spaceName := firstNonEmpty(session.SpaceName, account.SpaceName)
+				clientVersion := firstNonEmpty(session.ClientVersion, account.ClientVersion)
+				succeededAt := time.Now()
+				if _, saveErr := a.State.MutateAccount(account.Email, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email), func(cur NotionAccount) NotionAccount {
+					cur.UserID = userID
+					cur.UserName = userName
+					cur.SpaceID = spaceID
+					cur.SpaceViewID = spaceViewID
+					cur.SpaceName = spaceName
+					cur.ClientVersion = clientVersion
+					return markAccountDispatchSuccess(cur, succeededAt)
+				}); saveErr != nil {
 					return InferenceResult{}, saveErr
 				}
 				return result, nil
@@ -817,15 +852,22 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 										retrySlotAcquired = false
 									}
 									result.AccountEmail = refreshedAccount.Email
-									refreshedAccount.UserID = firstNonEmpty(refreshedSession.UserID, refreshedAccount.UserID)
-									refreshedAccount.UserName = firstNonEmpty(refreshedSession.UserName, refreshedAccount.UserName)
-									refreshedAccount.SpaceID = firstNonEmpty(refreshedSession.SpaceID, refreshedAccount.SpaceID)
-									refreshedAccount.SpaceViewID = firstNonEmpty(refreshedSession.SpaceViewID, refreshedAccount.SpaceViewID)
-									refreshedAccount.SpaceName = firstNonEmpty(refreshedSession.SpaceName, refreshedAccount.SpaceName)
-									refreshedAccount.ClientVersion = firstNonEmpty(refreshedSession.ClientVersion, refreshedAccount.ClientVersion)
-									refreshedAccount = markAccountDispatchSuccess(refreshedAccount, time.Now())
-									nextCfg := applyAccountUpdate(cfg, refreshedAccount, shouldPersistDispatchedAccountAsActive(cfg, request, refreshedAccount.Email))
-									if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
+									rUserID := firstNonEmpty(refreshedSession.UserID, refreshedAccount.UserID)
+									rUserName := firstNonEmpty(refreshedSession.UserName, refreshedAccount.UserName)
+									rSpaceID := firstNonEmpty(refreshedSession.SpaceID, refreshedAccount.SpaceID)
+									rSpaceViewID := firstNonEmpty(refreshedSession.SpaceViewID, refreshedAccount.SpaceViewID)
+									rSpaceName := firstNonEmpty(refreshedSession.SpaceName, refreshedAccount.SpaceName)
+									rClientVersion := firstNonEmpty(refreshedSession.ClientVersion, refreshedAccount.ClientVersion)
+									rSucceededAt := time.Now()
+									if _, saveErr := a.State.MutateAccount(refreshedAccount.Email, shouldPersistDispatchedAccountAsActive(cfg, request, refreshedAccount.Email), func(cur NotionAccount) NotionAccount {
+										cur.UserID = rUserID
+										cur.UserName = rUserName
+										cur.SpaceID = rSpaceID
+										cur.SpaceViewID = rSpaceViewID
+										cur.SpaceName = rSpaceName
+										cur.ClientVersion = rClientVersion
+										return markAccountDispatchSuccess(cur, rSucceededAt)
+									}); saveErr != nil {
 										return InferenceResult{}, saveErr
 									}
 									return result, nil
@@ -852,30 +894,8 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 			return InferenceResult{}, err
 		}
 
-		// CORE_PRINCIPLES §4（用户拍板）：限制类错（starve/temporarily-unavailable/quota）→
-		// 轮换引擎新建空间续聊，不固定冷却、不换号。仅未吐出内容时重试一次（防重复输出）。
-		if a.rotator != nil && !emittedAny && slotAcquired && IsRotationWorthyError(err) {
-			if newSession, rotateErr := a.rotator.Rotate(ctx, cfg, session); rotateErr == nil {
-				log.Printf("[dispatch] rotated account=%s new_space=%s retrying (限制类错恢复)", account.Email, newSession.SpaceID)
-				if retryResult, retryErr := a.runPromptWithSessionWithSink(ctx, cfg, newSession, account.Email, request, sink); retryErr == nil {
-					a.State.ReleaseAccountDispatchSlot(account.Email)
-					slotAcquired = false
-					retryResult.AccountEmail = account.Email
-					account.SpaceID = firstNonEmpty(newSession.SpaceID, account.SpaceID)
-					account.SpaceViewID = firstNonEmpty(newSession.SpaceViewID, account.SpaceViewID)
-					account = markAccountDispatchSuccess(account, time.Now())
-					nextCfg := applyAccountUpdate(cfg, account, shouldPersistDispatchedAccountAsActive(cfg, request, account.Email))
-					if saveErr := a.State.SaveAndApply(nextCfg); saveErr != nil {
-						return InferenceResult{}, saveErr
-					}
-					return retryResult, nil
-				} else {
-					err = retryErr
-				}
-			} else {
-				log.Printf("[dispatch] rotate failed for %s: %v", account.Email, rotateErr)
-			}
-		}
+		// 轮换重试已收口至 executePromptWithRotation(account_pool.go)——
+		// 此处原代码因 slot 已释放(slotAcquired 恒 false)为死代码,且与其重复实现,已删除(2026 审计 P0-3)。
 
 		// 账号级故障（被上游标记/无产出）：明确非 retryable，进入冷却并换下一个候选
 		if errors.Is(err, errAccountStarved) {
@@ -891,9 +911,23 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 			}
 		}
 
-		account = markAccountDispatchFailure(account, time.Now(), err, retryable)
+		// P1-2 修复：本地并发容量不足（slot 被其他请求抢占）不是账号健康信号——
+		// 不计失败数、不置 failed、不进冷却，直接记录并试下一个候选。
+		if isDispatchCapacityExceededError(err) {
+			lastErr = fmt.Errorf("%s: %w", account.Email, err)
+			continue
+		}
+		// P0-4:锁内取最新账号记账(并发下计数/冷却不互冲);local cfg 只更新本循环视图
+		failedAt := time.Now()
+		recorded, saveErr := a.State.MutateAccount(account.Email, false, func(cur NotionAccount) NotionAccount {
+			return markAccountDispatchFailure(cur, failedAt, err, retryable)
+		})
+		if saveErr != nil {
+			log.Printf("[dispatch] persist failure state for %s failed: %v (cooldown may be lost)", account.Email, saveErr)
+		} else {
+			account = recorded
+		}
 		cfg = applyAccountUpdate(cfg, account, false)
-		_ = a.State.SaveAndApply(cfg)
 		lastErr = fmt.Errorf("%s: %w", account.Email, err)
 		if emittedAny {
 			return InferenceResult{}, lastErr

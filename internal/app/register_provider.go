@@ -1,8 +1,8 @@
 package app
 
-// register_provider.go — P2 号源闭环：Go 服务侧调用注册机（Python 子进程）补号入池
-// 复用 Desktop/notion注册机 的 batch_run_proto.py（产号 → probe.json 落盘），
-// 产出的号直接追加进 cfg.Accounts 并持久化。
+// register_provider.go — P2 号源闭环：调用注册机子进程（Python 脚本）补号入池。
+// 2026 Phase2 整改：脚本目录/解释器/代理全部走 cfg.Register，不再硬编码 Windows 路径；
+// 脚本未配置时优雅报"unavailable"；并附池水位自动巡检（低于 min_healthy 自动补号）。
 
 import (
 	"bytes"
@@ -17,26 +17,53 @@ import (
 	"time"
 )
 
-const (
-	registerProviderRoot = `C:\Users\Administrator\Desktop\notion注册机\register`
-	registerProviderBatch = `batch_run_proto.py`
-	registerProviderTimeout = 180 * time.Second
-)
+// 号源未配置（脚本目录为空或脚本文件不存在）：手动补号返回 503，巡检记日志后跳过。
+var errRegisterNotConfigured = fmt.Errorf("register script not configured (set register.script_dir)")
+
+type registerResolver struct {
+	dir     string
+	script  string
+	python  string
+	proxy   string
+	timeout time.Duration
+}
+
+func resolveRegisterFromConfig(cfg AppConfig) registerResolver {
+	rc := cfg.ResolveRegister()
+	return registerResolver{
+		dir:     resolveConfigRelativePath(cfg.ConfigPath, rc.ScriptDir, ""),
+		script:  rc.ScriptName,
+		python:  rc.PythonBin,
+		proxy:   strings.TrimSpace(rc.Proxy),
+		timeout: time.Duration(rc.TimeoutSec) * time.Second,
+	}
+}
 
 // RegisterNewAccount — 调注册机产一个新号并入池。
-// 返回新号 email；号目录在注册机 accounts/detail/<email>/。
+// 返回新号 email；号目录在 register.script_dir/accounts/detail/<email>/。
 func (a *App) RegisterNewAccount(ctx context.Context, proxy string) (string, error) {
 	if a == nil || a.State == nil {
 		return "", fmt.Errorf("server state unavailable")
 	}
-	args := []string{"batch_run_proto.py", "--n", "1", "--gap", "10"}
-	if strings.TrimSpace(proxy) != "" {
+	cfg, _, _ := a.State.Snapshot()
+	reg := resolveRegisterFromConfig(cfg)
+	if strings.TrimSpace(reg.dir) == "" || !fileExists(filepath.Join(reg.dir, reg.script)) {
+		return "", errRegisterNotConfigured
+	}
+	if proxy == "" {
+		proxy = reg.proxy
+	}
+
+	args := []string{reg.script, "--n", "1", "--gap", "10"}
+	if proxy != "" {
 		args = append(args, "--proxy", proxy)
 	}
-	cmd := exec.CommandContext(ctx, "python", args...)
-	cmd.Dir = registerProviderRoot
-	// 强制子进程以 UTF-8 输出，避免 GBK 乱码导致 "OK 成功:" 解析失败
-	cmd.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHON-IGNORE-ENV=1", "PYTHONIOENCODING=utf-8")
+	runCtx, cancel := context.WithTimeout(ctx, reg.timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, reg.python, args...)
+	cmd.Dir = reg.dir
+	// 强制 UTF-8，避免输出乱码导致邮箱解析失败
+	cmd.Env = append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -50,7 +77,7 @@ func (a *App) RegisterNewAccount(ctx context.Context, proxy string) (string, err
 	email, parseErr := extractRegisteredEmail(output)
 	if parseErr != nil {
 		// 兜底：注册机输出不可解析时，按 probe.json 落盘时间定位本次新建的账号
-		if recent, rErr := findAccountCreatedSince(startTime); rErr == nil {
+		if recent, rErr := findAccountCreatedSince(reg.dir, startTime); rErr == nil {
 			email = recent
 			log.Printf("[register_provider] parsed email missing; located newly created account %s", email)
 		} else if runErr != nil {
@@ -60,37 +87,49 @@ func (a *App) RegisterNewAccount(ctx context.Context, proxy string) (string, err
 			return "", parseErr
 		}
 	}
-	// 入池：追加到 cfg.Accounts 并通过 SaveAndApply 刷新 dispatch 快照（snap），
-	// 否则新号只写入存储、不进入实时候选队列，等于没入池。
-	probePath := filepath.Join(registerProviderRoot, "accounts", "detail", email, "probe.json")
+
+	// 入池：追加 cfg.Accounts 并通过 SaveAndApply 刷新 dispatch 快照，
+	// 否则新号只写存储、不进实时候选队列 — 等于没入池。
+	probePath := filepath.Join(reg.dir, "accounts", "detail", email, "probe.json")
 	if !fileExists(probePath) {
 		return "", fmt.Errorf("probe not found for %s", email)
 	}
-	cfg := a.State.Config
-	// 去重：若已入池则不再追加，避免重复条目
 	key := canonicalEmailKey(email)
-	for _, acc := range cfg.Accounts {
-		if canonicalEmailKey(acc.Email) == key {
-			log.Printf("[register_provider] account %s already pooled", email)
-			return email, nil
-		}
-	}
-	cfg.Accounts = append(cfg.Accounts, NotionAccount{
+	newAccount := NotionAccount{
 		Email:     email,
 		ProbeJSON: probePath,
 		Priority:  100,
-	})
-	if err := a.State.SaveAndApply(cfg); err != nil {
+		Status:    "ready",
+	}
+
+	a.State.mu.Lock()
+	deduped := false
+	for _, acc := range a.State.Config.Accounts {
+		if canonicalEmailKey(acc.Email) == key {
+			deduped = true
+			break
+		}
+	}
+	if deduped {
+		a.State.mu.Unlock()
+		log.Printf("[register_provider] account %s already pooled", email)
+		return email, nil
+	}
+	cfg2 := a.State.Config
+	cfg2.Accounts = append(cfg2.Accounts, newAccount)
+	err := a.State.saveAndApplyLocked(cfg2)
+	a.State.mu.Unlock()
+	if err != nil {
 		return "", fmt.Errorf("save accounts failed: %w", err)
 	}
-	log.Printf("[register_provider] new account %s registered and pooled", email)
+	log.Printf("[register_provider] new account %s registered and pooled (probe=%s)", email, probePath)
 	return email, nil
 }
 
 // findAccountCreatedSince — 注册机输出不可解析时，按 accounts/detail/<email>/probe.json
-// 的落盘时间定位本次新建的账号（注册约 30-40s，取 startTime 之后最新创建者）。
-func findAccountCreatedSince(since time.Time) (string, error) {
-	root := filepath.Join(registerProviderRoot, "accounts", "detail")
+// 落盘时间定位本次新建的账号（注册约 30-40s，取 startTime 之后最新创建者）。
+func findAccountCreatedSince(scriptDir string, since time.Time) (string, error) {
+	root := filepath.Join(scriptDir, "accounts", "detail")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return "", err
@@ -136,6 +175,7 @@ func extractRegisteredEmail(output string) (string, error) {
 	return "", fmt.Errorf("no registered email in output")
 }
 
+// truncateStr — 截断长文本用于错误消息
 func truncateStr(s string, n int) string {
 	if len(s) > n {
 		return s[:n] + "..."
@@ -143,15 +183,79 @@ func truncateStr(s string, n int) string {
 	return s
 }
 
+// ── 手动补号（HTTP 入口）──────────────────────────────────────────────
+
 // adminRegisterAccount — POST /admin/accounts/register 手动补号
 func (a *App) adminRegisterAccount(w http.ResponseWriter, r *http.Request) {
 	proxy := strings.TrimSpace(r.URL.Query().Get("proxy"))
-	ctx, cancel := context.WithTimeout(r.Context(), registerProviderTimeout)
-	defer cancel()
-	email, err := a.RegisterNewAccount(ctx, proxy)
+	email, err := a.RegisterNewAccount(r.Context(), proxy)
 	if err != nil {
+		if err == errRegisterNotConfigured {
+			writeOpenAIError(w, http.StatusServiceUnavailable, err.Error(), "not_configured", "register_not_configured")
+			return
+		}
 		writeOpenAIError(w, http.StatusBadGateway, "register failed: "+err.Error(), "server_error", "register_failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": email, "probe": "register/accounts/detail/" + email + "/probe.json"})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": email})
+}
+
+// ── 池水位自动巡检（P2 自动补给）──────────────────────────────────────
+
+// startAccountReconcilerLoop — 后台巡检：池内健康账号数 < min_healthy 时自动调注册机补 1 个。
+// register.enabled=false 时循环空转（每次 tick 看一眼配置,热更配置即生效）。
+func (a *App) startAccountReconcilerLoop(ctx context.Context) {
+	for {
+		cfg, _, _ := a.State.Snapshot()
+		rc := cfg.ResolveRegister()
+		interval := time.Duration(rc.CheckIntervalSec) * time.Second
+		if rc.Enabled {
+			a.reconcileAccountPoolLevel(ctx, rc)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+// reconcileAccountPoolLevel — 单次巡检：计算健康水位，低于 min_healthy 补 1 个
+// （慢节奏 + 单次 1 个：防注册机/上游被注册流量打爆）
+func (a *App) reconcileAccountPoolLevel(parent context.Context, rc RegisterConfig) {
+	cfg, _, _ := a.State.Snapshot()
+	healthy, total := countHealthyAccounts(cfg)
+	log.Printf("[register_reconciler] pool health: healthy=%d total=%d min_healthy=%d", healthy, total, rc.MinHealthy)
+	if healthy >= rc.MinHealthy {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(rc.TimeoutSec)*time.Second)
+	defer cancel()
+	email, err := a.RegisterNewAccount(ctx, rc.Proxy)
+	if err != nil {
+		log.Printf("[register_reconciler] auto-replenish failed: %v", err)
+		return
+	}
+	log.Printf("[register_reconciler] auto-replenished account=%s", email)
+}
+
+// countHealthyAccounts — 统计池内"当前可用"账号数（非 disabled、有 artifact、不在冷却）
+func countHealthyAccounts(cfg AppConfig) (healthy, total int) {
+	now := time.Now()
+	for _, acc := range cfg.Accounts {
+		total++
+		if acc.Disabled {
+			continue
+		}
+		expiry := accountCooldownExpiry(acc)
+		if !expiry.IsZero() && now.Before(expiry) {
+			continue
+		}
+		acc = ensureAccountPaths(cfg, acc)
+		if !accountHasUsableArtifacts(cfg, acc) {
+			continue
+		}
+		healthy++
+	}
+	return healthy, total
 }

@@ -37,6 +37,11 @@ type anthropicEventConverter struct {
 	blockIdx int
 	started  bool
 	writeMu  sync.Mutex // 2026-08-26 修复：ping goroutine 与主循环并发写响应（CC 卡死根因）
+	// upstream — 内部链路真实状态码载体（P1-1）：上游错误在 SSE headers 发出前
+	// 写的是 JSON 错误体（非 data: 行），converter 据此发 error 事件而非空成功骨架。
+	upstream *liveSSEWriter
+	// lastPlainLine — 最近一条非 data: 文本行（截断），用于从 JSON 错误体提取 message
+	lastPlainLine string
 }
 
 func newAnthropicEventConverter(w http.ResponseWriter, flusher http.Flusher, msgID string, model string) *anthropicEventConverter {
@@ -64,6 +69,7 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 	usageOut := 0
 	firstChunkAt := time.Time{}
 	// 心跳：15s 无事件时发 ping（Anthropic 协议事件；防中间层/客户端超时断连）
+	// P1-7 修复：ping 写失败 = 客户端已断连，停止心跳而不是继续空转。
 	pingStop := make(chan struct{})
 	pingDone := make(chan struct{})
 	go func() {
@@ -75,7 +81,10 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 			case <-pingStop:
 				return
 			case <-ticker.C:
-				_ = c.send("ping", map[string]any{"type": "ping"})
+				if err := c.send("ping", map[string]any{"type": "ping"}); err != nil {
+					log.Printf("[messages-stream] ping failed (client gone): %v", err)
+					return
+				}
 			}
 		}
 	}()
@@ -84,6 +93,14 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data: ") {
+			// P1-1：记录非 data: 行（SSE 注释 ":" 开头除外）——内部链路在上游失败时
+			// 写的是 JSON 错误体，行首不带 data: 前缀，converter 需要据此识别错误
+			if line != "" && !strings.HasPrefix(line, ":") {
+				if len(line) > 400 {
+					line = line[:400] + "..."
+				}
+				c.lastPlainLine = line
+			}
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
@@ -160,7 +177,7 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 					}
 					callID := strings.TrimSpace(stringValue(tc["id"]))
 					if callID == "" {
-						callID = "toolu_" + strings.ReplaceAll(randomUUID(), "-", "")[:20]
+						callID = "toolu_" + shortID(20)
 					}
 					_ = c.send("content_block_start", map[string]any{
 						"type": "content_block_start", "index": c.blockIdx,
@@ -205,8 +222,40 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 			}
 		}
 	}
-	// 收尾：未收到任何 chunk 也发骨架（空流不静默）
+	// P1-2 修复：scanner 出错（>16MB 行等）必须显式上报并终止为错误事件，
+	// 不能静默走「正常收尾」——否则截断被吞、客户端拿到残缺的"成功"流。
+	if scanErr := scanner.Err(); scanErr != nil {
+		log.Printf("[messages-stream] upstream SSE scan error: %v", scanErr)
+		_ = c.send("error", map[string]any{"type": "error", "error": map[string]any{
+			"type": "api_error", "message": "internal stream decode error",
+		}})
+		return scanErr
+	}
+	// 收尾：未收到任何 chunk 时的空流处理（P1-1）：
+	// 内部链路在上游失败时写的是 JSON 错误体（非 data: 行），且状态码 >=400 —
+	// 必须转成 error 事件，而不是给客户端发"空的成功消息"（CC 会静默继续/重试风暴）。
 	if !c.started {
+		if c.upstream != nil && c.upstream.status >= 400 {
+			log.Printf("[messages-stream] upstream failed status=%d before SSE start", c.upstream.status)
+			_ = c.send("error", map[string]any{"type": "error", "error": map[string]any{
+				"type": "api_error", "message": anthropicUpstreamErrorMessage(c.upstream.status, c.lastPlainLine),
+			}})
+			return fmt.Errorf("upstream error status %d", c.upstream.status)
+		}
+		var errObj map[string]any
+		if c.lastPlainLine != "" && json.Unmarshal([]byte(c.lastPlainLine), &errObj) == nil {
+			if e, ok := errObj["error"].(map[string]any); ok {
+				msg := stringValue(e["message"])
+				if msg == "" {
+					msg = "upstream error"
+				}
+				_ = c.send("error", map[string]any{"type": "error", "error": map[string]any{
+					"type": "api_error", "message": msg,
+				}})
+				return fmt.Errorf("upstream error: %s", msg)
+			}
+		}
+		// 真正空流（无错误信号）才发骨架
 		c.started = true
 		_ = c.send("message_start", map[string]any{
 			"type": "message_start",
@@ -235,4 +284,19 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 // fmt_Fprintf — 局部别名（避免 import fmt 冲突）
 func fmt_Fprintf(w io.Writer, format string, args ...any) (int, error) {
 	return fmt.Fprintf(w, format, args...)
+}
+
+// anthropicUpstreamErrorMessage — 从内部链路状态码/JSON 错误体提炼 Anthropic 错误消息（P1-1）
+func anthropicUpstreamErrorMessage(status int, plainLine string) string {
+	if plainLine != "" {
+		var obj map[string]any
+		if json.Unmarshal([]byte(plainLine), &obj) == nil {
+			if e, ok := obj["error"].(map[string]any); ok {
+				if msg := strings.TrimSpace(stringValue(e["message"])); msg != "" {
+					return msg
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("upstream request failed with status %d", status)
 }

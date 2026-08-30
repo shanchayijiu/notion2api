@@ -815,7 +815,7 @@ func synthesizeToolCall(assistantText string, tools []map[string]any, rawMessage
 		return nil
 	}
 	return []OpenAIToolCall{{
-		ID:   "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16],
+		ID:   "call_" + shortID(16),
 		Type: "function",
 		Function: struct {
 			Name      string `json:"name"`
@@ -946,7 +946,7 @@ func synthesizeTaskCall(assistantText string, tools []map[string]any, rawMessage
 			return nil
 		}
 		return []OpenAIToolCall{{
-			ID:   "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16],
+			ID:   "call_" + shortID(16),
 			Type: "function",
 			Function: struct {
 				Name      string `json:"name"`
@@ -1015,7 +1015,7 @@ func synthesizeTaskCall(assistantText string, tools []map[string]any, rawMessage
 		}
 		log.Printf("[task-synth] synthesized Write file_path=%s", filePath)
 		return []OpenAIToolCall{{
-			ID:   "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16],
+			ID:   "call_" + shortID(16),
 			Type: "function",
 			Function: struct {
 				Name      string `json:"name"`
@@ -1030,7 +1030,7 @@ func synthesizeTaskCall(assistantText string, tools []map[string]any, rawMessage
 		}
 		log.Printf("[task-synth] synthesized Bash command=%s", command)
 		return []OpenAIToolCall{{
-			ID:   "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16],
+			ID:   "call_" + shortID(16),
 			Type: "function",
 			Function: struct {
 				Name      string `json:"name"`

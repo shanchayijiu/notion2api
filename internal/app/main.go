@@ -11,7 +11,10 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -465,6 +468,14 @@ func newServerState(cfg AppConfig) (*ServerState, error) {
 }
 
 func (s *ServerState) ApplyConfig(cfg AppConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.applyConfigLocked(cfg)
+}
+
+// applyConfigLocked — ApplyConfig 的锁内版本（P0-4:MutateAccount 需要在持锁状态下
+// 完成"读最新-改-刷快照"全程,不能中途放锁,否则并发请求回写互相覆盖）
+func (s *ServerState) applyConfigLocked(cfg AppConfig) error {
 	cfg = normalizeConfig(cfg)
 	if err := validateConfiguredAPIKey(cfg); err != nil {
 		return err
@@ -485,8 +496,6 @@ func (s *ServerState) ApplyConfig(cfg AppConfig) error {
 			}
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Config = cfg
 	s.Session = session
 	s.ModelRegistry = registry
@@ -528,11 +537,18 @@ func (s *ServerState) updateSnapshotBundleLocked() {
 }
 
 func (s *ServerState) SaveAndApply(cfg AppConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveAndApplyLocked(cfg)
+}
+
+// saveAndApplyLocked — SaveAndApply 的锁内版本（调用者必须已持有 s.mu）
+func (s *ServerState) saveAndApplyLocked(cfg AppConfig) error {
 	cfg = normalizeConfig(cfg)
 	if err := validateConfiguredAPIKey(cfg); err != nil {
 		return err
 	}
-	current, _, _ := s.Snapshot()
+	current := s.Config
 	if strings.TrimSpace(cfg.ConfigPath) != "" {
 		if strings.TrimSpace(current.ConfigPath) != strings.TrimSpace(cfg.ConfigPath) || !persistedConfigEqual(current, cfg) {
 			if err := saveConfigFile(cfg); err != nil {
@@ -540,7 +556,7 @@ func (s *ServerState) SaveAndApply(cfg AppConfig) error {
 			}
 		}
 	}
-	if err := s.ApplyConfig(cfg); err != nil {
+	if err := s.applyConfigLocked(cfg); err != nil {
 		return err
 	}
 	if s.Store != nil {
@@ -548,18 +564,45 @@ func (s *ServerState) SaveAndApply(cfg AppConfig) error {
 			return err
 		}
 	}
-	s.mu.Lock()
 	if s.ResponseStore == nil {
 		s.ResponseStore = newResponseStore(time.Duration(maxInt(cfg.Responses.StoreTTLSeconds, 1)) * time.Second)
 	} else {
 		s.ResponseStore.setTTL(time.Duration(maxInt(cfg.Responses.StoreTTLSeconds, 1)) * time.Second)
 	}
 	s.updateSnapshotBundleLocked()
-	s.mu.Unlock()
 	if canonicalEmailKey(current.ActiveAccount) != canonicalEmailKey(cfg.ActiveAccount) && s.DispatchProbeCache != nil {
 		s.DispatchProbeCache.invalidateAll()
 	}
 	return nil
+}
+
+// MutateAccount — P0-4 修复：账号运行时状态（成功/失败/冷却/配额计数）的修改
+// 必须以"锁内取最新账号 → fn 变换 → 整体提交"的形式进行。
+// 不能接收调用方算好的整账号值——调用方手中的账号副本来自请求开始时的快照,
+// 并发下必然互相覆盖（lost-update，该冷却的号继续被打/配额统计失真）。
+// makeActive 语义沿用 applyAccountUpdate（同时切 active 账号）。
+func (s *ServerState) MutateAccount(email string, makeActive bool, mutate func(NotionAccount) NotionAccount) (NotionAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := canonicalEmailKey(email)
+	var current NotionAccount
+	found := false
+	for _, acc := range s.Config.Accounts {
+		if canonicalEmailKey(acc.Email) == key {
+			current = acc
+			found = true
+			break
+		}
+	}
+	if !found {
+		return NotionAccount{}, fmt.Errorf("account %s not found", email)
+	}
+	updated := mutate(current)
+	cfg := applyAccountUpdate(s.Config, updated, makeActive)
+	if err := s.saveAndApplyLocked(cfg); err != nil {
+		return updated, err
+	}
+	return updated, nil
 }
 
 func (s *ServerState) conversationPersistenceStore() *SQLiteStore {
@@ -880,7 +923,7 @@ func writeJSONBytes(w http.ResponseWriter, status int, body []byte) {
 	_, _ = w.Write(body)
 }
 
-func appendHealthzRuntimeFields(body []byte, sessionReady bool, lastRefresh time.Time, lastRefreshError string) []byte {
+func appendHealthzRuntimeFields(body []byte, sessionReady bool, lastRefresh time.Time, lastRefreshError string, poolHealthy int, poolTotal int) []byte {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 || trimmed[len(trimmed)-1] != '}' {
 		trimmed = []byte(`{"ok":true}`)
@@ -889,6 +932,9 @@ func appendHealthzRuntimeFields(body []byte, sessionReady bool, lastRefresh time
 	identity := resolveBuildIdentity()
 	tail := map[string]any{
 		"session_ready":              sessionReady,
+		"pool_healthy":               poolHealthy,
+		"pool_total":                 poolTotal,
+		"pool_ready":                 poolHealthy > 0,
 		"last_session_refresh":       formatTimeOrEmpty(lastRefresh),
 		"last_session_refresh_error": lastRefreshError,
 		"commit":                     identity.CommitSHA,
@@ -1087,12 +1133,15 @@ func (a *App) serveHealthz(w http.ResponseWriter) {
 	cached := a.State.cachedHealthzStaticJSON.Load()
 	a.State.mu.RUnlock()
 	if cached != nil {
-		body := appendHealthzRuntimeFields(*cached, sessionReady, lastRefresh, lastRefreshError)
+		cfgForPool, _, _ := a.State.Snapshot()
+		poolHealthyCached, poolTotalCached := countHealthyAccounts(cfgForPool)
+		body := appendHealthzRuntimeFields(*cached, sessionReady, lastRefresh, lastRefreshError, poolHealthyCached, poolTotalCached)
 		writeJSONBytes(w, http.StatusOK, body)
 		return
 	}
 	cfg, session, registry := a.State.Snapshot()
 	identity := resolveBuildIdentity()
+	poolHealthy, poolTotal := countHealthyAccounts(cfg)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                      true,
 		"default_model":           cfg.DefaultPublicModel(),
@@ -1101,6 +1150,9 @@ func (a *App) serveHealthz(w http.ResponseWriter) {
 		"space_id":                session.SpaceID,
 		"active_account":          cfg.ActiveAccount,
 		"session_ready":           sessionReady,
+		"pool_healthy":            poolHealthy,
+		"pool_total":              poolTotal,
+		"pool_ready":              poolHealthy > 0, // P2:分级健康——session_ready(进程能跑)≠ pool_ready(有健康号池能应答)
 		"session_refresh_enabled": cfg.ResolveSessionRefresh().Enabled,
 		"last_session_refresh":       formatTimeOrEmpty(lastRefresh),
 		"last_session_refresh_error": lastRefreshError,
@@ -1744,6 +1796,8 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if matched, ok := a.resolveContinuationConversationWithExplicit("", hiddenPrompt, normalized.Segments, preferredConversationID, explicitThreadID); ok && !hasTools {
 		conversation = matched.Conversation
 		request.PinnedAccountEmail = firstNonEmpty(strings.TrimSpace(conversation.AccountEmail), requestedAccount)
+		// P0-2 修复:续聊 pinning 是服务端推断(非客户端显式指定),允许回落到池内健康账号
+		request.AllowPinnedAccountFallback = true
 		if freshThreadMode {
 			request.ForceLocalConversationContinue = strings.TrimSpace(conversation.ID) != ""
 			request.Prompt = buildFreshThreadReplayPromptFromConversation(conversation, latestPrompt, normalized.Attachments, promptText)
@@ -1893,6 +1947,8 @@ func (a *App) handleSillyTavernChatCompletionsPayload(w http.ResponseWriter, r *
 		request.SuppressUpstreamThreadPersistence = matched.SuppressPersist
 		conversation = matched.Target.Conversation
 		request.PinnedAccountEmail = firstNonEmpty(strings.TrimSpace(conversation.AccountEmail), requestedAccountEmail(r, payload))
+		// P0-2 修复:续聊 pinning 是服务端推断(非客户端显式指定),允许回落到池内健康账号
+		request.AllowPinnedAccountFallback = true
 		if freshThreadMode {
 			request.ForceLocalConversationContinue = strings.TrimSpace(conversation.ID) != ""
 			request.Prompt = buildFreshThreadReplayPromptFromConversation(conversation, ctx.LatestPrompt, ctx.Normalized.Attachments, request.Prompt)
@@ -2016,6 +2072,8 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if matched, ok := a.resolveContinuationConversationWithExplicit(previousResponseID, hiddenPrompt, normalized.Segments, preferredConversationID, explicitThreadID); ok {
 		conversation = matched.Conversation
 		request.PinnedAccountEmail = firstNonEmpty(strings.TrimSpace(conversation.AccountEmail), requestedAccount)
+		// P0-2 修复:续聊 pinning 是服务端推断(非客户端显式指定),允许回落到池内健康账号
+		request.AllowPinnedAccountFallback = true
 		if freshThreadMode {
 			request.ForceLocalConversationContinue = strings.TrimSpace(conversation.ID) != ""
 			request.Prompt = buildFreshThreadReplayPromptFromConversation(conversation, latestPrompt, normalized.Attachments, promptText)
@@ -2468,7 +2526,7 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 		for i, call := range toolCalls {
 			callID := call.ID
 			if strings.TrimSpace(callID) == "" {
-				callID = "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16]
+				callID = "call_" + shortID(16)
 			}
 			// 工具首片：index + id + type + name，arguments 为空串（finish_reason 显式 null）
 			_ = safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
@@ -2801,7 +2859,7 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		for _, call := range toolCalls {
 			callID := call.ID
 			if strings.TrimSpace(callID) == "" {
-				callID = "call_" + strings.ReplaceAll(randomUUID(), "-", "")[:16]
+				callID = "call_" + shortID(16)
 			}
 			item := map[string]any{
 				"type": "function_call", "id": fcID, "call_id": callID,
@@ -3083,6 +3141,15 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /internal/metrics — expvar 端点(含调度/上游/缓存计数器的内置指标),须带 API Key
+	if r.Method == http.MethodGet && path == "/internal/metrics" {
+		if a.authOK(safeWriter, r) {
+			expvar.Handler().ServeHTTP(safeWriter, r)
+		}
+		statusCode = safeWriter.status
+		return
+	}
+
 	if !a.authOK(safeWriter, r) {
 		statusCode = safeWriter.status
 		return
@@ -3120,10 +3187,11 @@ func Main() {
 		log.Fatalf("init state failed: %v", err)
 	}
 	app := &App{State: state}
-	app.SetWorkspaceRotator(NewWorkspaceRotator(state.Store))
+	app.SetWorkspaceRotator(NewWorkspaceRotatorWithState(state.Store, state))
 	state.StartSessionRefreshLoop(context.Background())
 	app.StartEphemeralConversationCleanupLoop(context.Background())
 	app.StartWorkspaceDeletionLoop(context.Background())
+	go app.startAccountReconcilerLoop(context.Background()) // P2:池水位巡检自动补号(register.enabled 时生效)
 	if cfg.Debug.PprofEnabled {
 		go func(addr string) {
 			log.Printf("[pprof] listening on http://%s/debug/pprof/ (local debug endpoint; avoid public exposure)", addr)
@@ -3137,10 +3205,37 @@ func Main() {
 		Addr:              addr,
 		Handler:           app,
 		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+		// 注意：不设全局 WriteTimeout——会掐断正常的长流式响应。
 	}
 	log.Printf("[notion2api-go] listening on http://%s default_model=%s", addr, cfg.DefaultPublicModel())
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+
+	// B3 修复：优雅关停——SIGINT/SIGTERM 后给在途请求(含流式)宽限期排空,
+	// 避免进程被直接掐断导致客户端看到半句话/连接静默死亡。
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	select {
+	case sig := <-quit:
+		log.Printf("[shutdown] received %v; draining in-flight requests (30s grace)", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("[shutdown] graceful shutdown incomplete: %v", err)
+		}
+		log.Printf("[shutdown] done")
+	case err := <-serverErr:
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 // toAnySlice — []map[string]any → []any（extractWorkingDirectory 泛化入参用）

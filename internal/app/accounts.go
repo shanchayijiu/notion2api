@@ -205,6 +205,19 @@ func (cfg AppConfig) ResolveSessionRefresh() ResolvedSessionRefresh {
 	}
 }
 
+// ResolveRegister — 号源配置归一（含默认值）
+func (cfg AppConfig) ResolveRegister() RegisterConfig {
+	rc := cfg.Register
+	rc.ScriptName = firstNonEmpty(strings.TrimSpace(rc.ScriptName), "batch_run_proto.py")
+	rc.PythonBin = firstNonEmpty(strings.TrimSpace(rc.PythonBin), "python3")
+	rc.TimeoutSec = maxInt(rc.TimeoutSec, 180)
+	rc.CheckIntervalSec = maxInt(rc.CheckIntervalSec, 600)
+	if rc.Enabled && rc.MinHealthy <= 0 {
+		rc.MinHealthy = 1
+	}
+	return rc
+}
+
 func (helper ResolvedLoginHelper) ProfileDirFor(email string) string {
 	baseDir := strings.TrimSpace(helper.SessionsDir)
 	if baseDir == "" {

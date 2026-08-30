@@ -34,7 +34,7 @@ frontend/out/
 *.tsbuildinfo
 
 # Local test sources stay out of git
-*_test.go
+# 2026:移除 *_test.go 排除——Go 回归测试必须入库(git 排除 = 发布后零回归保障)
 *.test.ts
 *.test.tsx
 *.spec.ts

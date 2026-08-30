@@ -184,9 +184,23 @@ type AppConfig struct {
 	Dispatch              DispatchConfig       `json:"dispatch"`
 	Browser               BrowserConfig        `json:"browser,omitempty"`
 	Debug                 DebugConfig          `json:"debug"`
+	Register              RegisterConfig       `json:"register,omitempty"`
 	Accounts              []NotionAccount      `json:"accounts,omitempty"`
 	Models                []ModelDefinition    `json:"models,omitempty"`
 	ModelAliases          map[string]string    `json:"model_aliases,omitempty"`
+}
+
+// RegisterConfig — P2 号源（注册机）配置。注册脚本目录已配置化（原硬编码 Windows 路径）,
+// Docker/Linux 下挂载脚本目录即可使用;Enabled=true 时启动后台水位巡检自动补号。
+type RegisterConfig struct {
+	Enabled          bool   `json:"enabled"`                        // 自动补给开关（默认关;脚本未配置时开也不生效）
+	ScriptDir        string `json:"script_dir,omitempty"`           // batch_run 脚本所在目录（容器内挂载路径）
+	ScriptName       string `json:"script_name,omitempty"`          // 默认 batch_run_proto.py
+	PythonBin        string `json:"python_bin,omitempty"`           // 默认 python3
+	Proxy            string `json:"proxy,omitempty"`                // 注册流量代理（可选）
+	TimeoutSec       int    `json:"timeout_sec,omitempty"`          // 单次注册超时,默认 180
+	MinHealthy       int    `json:"min_healthy_accounts,omitempty"` // 池健康水位:健康账号低于此值时补 1 个
+	CheckIntervalSec int    `json:"check_interval_sec,omitempty"`   // 水位巡检周期,默认 600
 }
 
 func defaultPromptCognitiveReframingPrefix() string {
@@ -436,7 +450,7 @@ func defaultConfig() AppConfig {
 		TimeoutSec:       180,
 		PollIntervalSec:  1.5,
 		PollMaxRounds:    40,
-		DebugUpstream:    true,
+		DebugUpstream:    false, // 隐私默认关:开启会落盘用户 prompt 原文;调试时显式开启
 		StreamChunkRunes: 24,
 		Admin: AdminConfig{
 			Enabled:       true,

@@ -124,7 +124,27 @@ func writePrettyJSONFile(path string, payload any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(clean, append(body, '\n'), 0o644)
+	body = append(body, '\n')
+	// P1-5 修复：原子写（同目录临时文件 + rename）。进程崩溃/掉电时旧文件保持完整,
+	// 不会残留半截 JSON 导致 loadSessionInfo 失败、账号被静默除名。
+	tmp, err := os.CreateTemp(filepath.Dir(clean), ".tmp-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // rename 成功后再 remove 是无害 no-op
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, clean)
 }
 
 func readLoginPendingState(path string) (loginPendingState, error) {

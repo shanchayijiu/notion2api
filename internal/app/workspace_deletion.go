@@ -40,7 +40,7 @@ func (a *App) runWorkspaceDeletionOnce(ctx context.Context) {
 		return
 	}
 	if a.rotator == nil {
-		a.rotator = NewWorkspaceRotator(a.State.Store)
+		a.rotator = NewWorkspaceRotatorWithState(a.State.Store, a.State)
 	}
 	cfg := a.State.Config
 	if len(cfg.Accounts) == 0 {

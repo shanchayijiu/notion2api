@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -96,30 +97,57 @@ func (a *App) handleMessagesStream(w http.ResponseWriter, r *http.Request, inter
 		return
 	}
 	pr, pw := io.Pipe()
-	done := make(chan bool, 1)
+	done := make(chan struct{})
+	lw := &liveSSEWriter{pw: pw, header: http.Header{}}
 	go func() {
 		defer close(done)
-		a.handleChatCompletions(&liveSSEWriter{pw: pw}, rWithBody(r, internalBody))
-		_ = pw.Close()
+		// P0-3 修复：子 goroutine panic 必须由本 goroutine recover（ServeHTTP 顶层
+		// recover 覆盖不到这里）；无论正常/异常结束都必须关闭写端，
+		// 否则 converter 的 scanner 永久阻塞在 pipe 读端（goroutine 泄漏 + 死锁）。
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[messages] stream producer panic: %v\n%s", rec, debug.Stack())
+			}
+			_ = pw.Close()
+		}()
+		a.handleChatCompletions(lw, rWithBody(r, internalBody))
 	}()
 
 	msgID := "msg_" + strings.ReplaceAll(randomUUID(), "-", "")
 	converter := newAnthropicEventConverter(w, flusher, msgID, req.Model)
-	if err := converter.run(pr); err != nil {
-		log.Printf("[messages] stream convert error: %v", err)
+	converter.upstream = lw // P1-1：让转换器能看到内部链路真实状态码，错误不再吞成空成功
+	runErr := converter.run(pr)
+	// P0-3 修复：converter 提前返回（如超长行 scan 失败）时关闭读端，
+	// 使写端 pw.Write 立即返回 ErrClosedPipe，避免 io.Pipe 永久互锁。
+	_ = pr.Close()
+	if runErr != nil {
+		log.Printf("[messages] stream convert error: %v", runErr)
 	}
-	<-done
+	// 客户端断连时不空等 producer 排空（上游 ctx 已随请求取消）
+	select {
+	case <-done:
+	case <-r.Context().Done():
+	}
 }
 
 // liveSSEWriter — 内部流式 http.ResponseWriter 适配：Write 实时转发到管道（无缓冲）
+// 记录真实 status/header：内部链路在 SSE headers 发出前失败时写的是 JSON 错误体，
+// 转换器据此把错误透传为 Anthropic error 事件，而不是空成功消息（P1-1）。
 type liveSSEWriter struct {
-	pw *io.PipeWriter
+	pw     *io.PipeWriter
+	header http.Header
+	status int
 }
 
-func (lw *liveSSEWriter) Header() http.Header { return http.Header{} }
-func (lw *liveSSEWriter) Write(b []byte) (int, error) { return lw.pw.Write(b) }
-func (lw *liveSSEWriter) WriteHeader(int)             {}
-func (lw *liveSSEWriter) Flush()                      {}
+func (lw *liveSSEWriter) Header() http.Header { return lw.header }
+func (lw *liveSSEWriter) Write(b []byte) (int, error) {
+	if lw.status == 0 {
+		lw.status = http.StatusOK
+	}
+	return lw.pw.Write(b)
+}
+func (lw *liveSSEWriter) WriteHeader(code int) { lw.status = code }
+func (lw *liveSSEWriter) Flush()               {}
 
 // anthropicFromOpenAICompletion — OpenAI 非流式响应 → Anthropic 消息
 func anthropicFromOpenAICompletion(oai map[string]any) anthropicMessageResponse {
@@ -154,7 +182,7 @@ func anthropicFromOpenAICompletion(oai map[string]any) anthropicMessageResponse 
 			}
 			callID := strings.TrimSpace(stringValue(call["id"]))
 			if callID == "" {
-				callID = "toolu_" + strings.ReplaceAll(randomUUID(), "-", "")[:20]
+				callID = "toolu_" + shortID(20)
 			}
 			var input map[string]any
 			argsStr := stringValue(fn["arguments"])

@@ -1086,7 +1086,7 @@ func buildChatCompletion(result InferenceResult, modelID string, includeTrace bo
 		calls := make([]map[string]any, 0, len(result.ToolUses))
 		for _, use := range result.ToolUses {
 			calls = append(calls, map[string]any{
-				"id": firstNonEmpty(use.ID, "call_"+strings.ReplaceAll(randomUUID(), "-", "")[:16]),
+				"id": firstNonEmpty(use.ID, "call_"+shortID(16)),
 				"type": "function",
 				"function": map[string]any{
 					"name":      use.Name,

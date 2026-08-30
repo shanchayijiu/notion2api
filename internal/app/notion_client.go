@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"net"
 	"encoding/json"
 	"errors"
 	"expvar"
@@ -39,6 +40,10 @@ const (
 var leadingLangTagPattern = regexp.MustCompile(`(?is)^\s*(?:<lang\b[^>]*>|</lang>)\s*`)
 var prefixedTranscriptStepIDPattern = regexp.MustCompile(`^(?:cfg|ctx|upd)_([0-9a-fA-F]{32})$`)
 var notionHTTPTransportCacheMetric = expvar.NewMap("notion2api_http_transport_cache_total")
+
+// maxCachedNotionTransports — P1-3:transport 缓存上限(账号×代理粒度),
+// 超限淘汰一个并释放其空闲连接,防长期运行 goroutine/连接累积
+const maxCachedNotionTransports = 64
 
 type notionHTTPTransportCacheKey struct {
 	UpstreamBaseURL       string
@@ -856,8 +861,17 @@ func cachedNotionHTTPTransport(cfg AppConfig, accountEmail string, resolver *Pro
 		tlsConfig.ServerName = strings.TrimSpace(upstream.TLSServerName)
 	}
 	proxyFunc := upstream.ProxyFunc()
+	// P0-2 修复：Transport 不能零值裸配——无 DialContext/TLSHandshakeTimeout/
+	// ResponseHeaderTimeout 时，代理/上游半黑洞只能靠请求 ctx(60s/900s)兜底;
+	// IdleConnTimeout=0 导致已被对端关闭的连接永久滞留池内、复用即 EOF 散发随机失败。
 	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
+		TLSClientConfig:       tlsConfig,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 45 * time.Second, // 只约束"等响应头"(上游 TTFB ~2.9s,远不触发);流式读 body 不受限
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   16,
 		Proxy: func(req *http.Request) (*url.URL, error) {
 			if resolver != nil {
 				proxyURL, _, err := resolver.ResolveProxyForRequest(accountEmail, req.URL)
@@ -879,6 +893,16 @@ func cachedNotionHTTPTransport(cfg AppConfig, accountEmail string, resolver *Pro
 		notionTransportCache.mu.Unlock()
 		notionHTTPTransportCacheMetric.Add("hit_lock", 1)
 		return existing
+	}
+	// P1-3 修复：缓存只增不减会随账号轮换/配置热更积累 transport(各自持有 goroutine
+	// 与连接)。设上限并淘汰一个条目(CloseIdleConnections 释放闲置连接)。
+	if len(notionTransportCache.items) >= maxCachedNotionTransports {
+		for evictKey, victim := range notionTransportCache.items {
+			delete(notionTransportCache.items, evictKey)
+			victim.CloseIdleConnections()
+			notionHTTPTransportCacheMetric.Add("evicted", 1)
+			break
+		}
 	}
 	notionTransportCache.items[key] = transport
 	notionTransportCache.mu.Unlock()
@@ -1062,6 +1086,20 @@ func randomUUID() string {
 	buf[6] = (buf[6] & 0x0f) | 0x40
 	buf[8] = (buf[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16])
+}
+
+// shortID — 生成安全的短随机 ID（hex，长度 min(n, 32)）。
+// 替代散落的 strings.ReplaceAll(randomUUID(), "-", "")[:N] 裸切片：
+// 若 randomUUID 实现变更导致字符串变短，裸切片会 panic（在 ping goroutine 里即进程崩溃）。
+func shortID(n int) string {
+	s := strings.ReplaceAll(randomUUID(), "-", "")
+	if n <= 0 {
+		return s
+	}
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 func canonicalUUIDString(value string) (string, bool) {
@@ -2714,6 +2752,18 @@ const unknownMarkerRawCap = 4 << 20
 var ndjsonIdleAfterAnswerTimeout = 5 * time.Second
 var errNDJSONLineTooLarge = errors.New("ndjson line too large")
 
+// ndjsonSilenceTimeout — P0-1 静默看门狗:从流开始到结束全程武装,
+// 任何 NDJSON 行(含 config/context 前奏行)到达即重置。覆盖两类黑洞:
+//   ① 上游返回 200 后永不发行(首行超时):此前 idle 计时只在可见答案后才武装,
+//      无账号池 fallback 下能挂 900s,keepalive 还让客户端永不超时;
+//   ② agent-inference 启动后永不产出(半截推理,账号被上游标记的已知演化形态)。
+// 上游正常账号每步推理都有 NDJSON 行(思考/工具/答案),45s = TTFB p50(~2.9s)的 15 倍余量。
+var ndjsonSilenceTimeout = 45 * time.Second
+
+// errUpstreamSilent — 上游长时间静默(无可见答案)。包装 errAccountStarved 语义:
+// dispatch 视为账号级故障 → 非 retryable、进冷却、换候选。
+var errUpstreamSilent = fmt.Errorf("%w: upstream stream silent", errAccountStarved)
+
 const (
 	ndjsonScannerInitialBuffer = 64 * 1024
 	ndjsonMaxLineBytes         = 16 * 1024 * 1024
@@ -2817,10 +2867,25 @@ func consumeNDJSONStreamWithIdleClose(reader io.ReadCloser, threadID string, sin
 	}
 	defer stopIdleTimer()
 
+	// P0-1 静默看门狗:全程武装,每收一行重置(与"答案后 idle"并存——
+	// 后者管"答案收齐后多等 5s 收尾",这里管"上游完全静默"的黑洞)。
+	silenceTimer := time.NewTimer(ndjsonSilenceTimeout)
+	defer silenceTimer.Stop()
+	resetSilenceTimer := func() {
+		if !silenceTimer.Stop() {
+			select {
+			case <-silenceTimer.C:
+			default:
+			}
+		}
+		silenceTimer.Reset(ndjsonSilenceTimeout)
+	}
+
 	for {
 		select {
 		case event := <-events:
 			if len(event.line) > 0 {
+				resetSilenceTimer()
 				if handleErr := state.handleLine(event.line, threadID, sink); handleErr != nil {
 					return state.result(), handleErr
 				}
@@ -2837,6 +2902,17 @@ func consumeNDJSONStreamWithIdleClose(reader io.ReadCloser, threadID string, sin
 			}
 		case <-idleC:
 			_ = reader.Close()
+			return state.result(), nil
+		case <-silenceTimer.C:
+			_ = reader.Close()
+			if !state.hasVisibleAnswer() {
+				// 无任何可见答案的全程静默 = 账号级黑洞(被标记/半截推理),
+				// 按 starved 语义上抛:dispatch 非 retryable → 冷却 → 换候选
+				log.Printf("[ndjson] silence watchdog fired thread=%s lines=%d agent_inference=%v", threadID, state.LineCount, state.result().HasAgentInference)
+				return state.result(), fmt.Errorf("%w (no visible answer after %s)", errUpstreamSilent, ndjsonSilenceTimeout)
+			}
+			// 已有部分答案:按 EOF 收尾,客户端拿到已收内容(与 idleC 语义一致)
+			log.Printf("[ndjson] stream stalled after partial answer; closing thread=%s", threadID)
 			return state.result(), nil
 		}
 	}
@@ -2874,6 +2950,12 @@ func (c *NotionAIClient) loadFinalAnswerOnce(ctx context.Context, threadID strin
 }
 
 func (c *NotionAIClient) syncThread(ctx context.Context, threadID string) (map[string]any, error) {
+	// P1-4 修复:黑洞窗口下沉到 sync 本体(此前只在 loadFinalAnswerOnce/poll 等部分调用点包裹,
+	// prepareContinuationDraft/saveContinuationScaffold 等路径裸传 ctx,被标记账号可挂到 60s/180s)
+	if wctx, cancel, ok := bestEffortContext(ctx, accountSyncBlackholeTimeout); ok {
+		defer cancel()
+		ctx = wctx
+	}
 	payload := map[string]any{
 		"requests": []map[string]any{{
 			"pointer": map[string]any{
@@ -2896,6 +2978,11 @@ func (c *NotionAIClient) syncThread(ctx context.Context, threadID string) (map[s
 }
 
 func (c *NotionAIClient) syncThreadMessages(ctx context.Context, threadID string, messageIDs []string) (map[string]any, error) {
+	// P1-4 修复:同上,黑洞窗口下沉到本体
+	if wctx, cancel, ok := bestEffortContext(ctx, accountSyncBlackholeTimeout); ok {
+		defer cancel()
+		ctx = wctx
+	}
 	requests := make([]map[string]any, 0, len(messageIDs))
 	for _, messageID := range messageIDs {
 		requests = append(requests, map[string]any{
@@ -3182,6 +3269,11 @@ func (c *NotionAIClient) deleteThread(ctx context.Context, threadID string) erro
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return fmt.Errorf("thread id is required")
+	}
+	// P1-4 收尾:同 saveContinuationScaffold
+	if wctx, cancel, ok := bestEffortContext(ctx, accountSyncBlackholeTimeout); ok {
+		defer cancel()
+		ctx = wctx
 	}
 	_, err := c.postJSON(ctx, c.Config.NotionUpstream().API("saveTransactionsFanout"), map[string]any{
 		"requestId": randomUUID(),
@@ -3738,6 +3830,11 @@ func (c *NotionAIClient) saveContinuationScaffold(ctx context.Context, threadID 
 	if threadID == "" {
 		return nil, nil
 	}
+	// P1-4 收尾:被标记账号的连接对 saveTransactions* 也会黑洞——统一 best-effort 窗口
+	if wctx, cancel, ok := bestEffortContext(ctx, accountSyncBlackholeTimeout); ok {
+		defer cancel()
+		ctx = wctx
+	}
 	createdAt := isoNowMillis()
 	createdTime := time.Now().UnixMilli()
 	updatedConfigID := randomUUID()
@@ -4234,6 +4331,24 @@ func (c *NotionAIClient) RunPrompt(ctx context.Context, req PromptRunRequest) (I
 			return InferenceResult{}, parseErr
 		}
 	}
+	if strings.TrimSpace(finalAgent.Text) == "" && len(parsed.ToolUses) > 0 {
+		// P2-2 修复:tool_use-only 回合(模型本轮只调用工具、无最终文本)是合法结果,
+		// 不应整轮判失败——否则会连带丢弃已解析的 ToolUses。
+		return InferenceResult{
+			Prompt:           cleanPrompt,
+			Model:            strings.TrimSpace(req.PublicModel),
+			NotionModel:      strings.TrimSpace(req.NotionModel),
+			ThreadID:         actualThreadID,
+			TraceID:          traceID,
+			NDJSONLineCount:  parsed.LineCount,
+			RawMessageIDs:    messageIDs,
+			Attachments:      uploadedAttachments,
+			ConfigID:         meta.ConfigID,
+			ContextID:        meta.ContextID,
+			OriginalDatetime: meta.OriginalDatetime,
+			ToolUses:         append([]InferenceToolUse(nil), parsed.ToolUses...),
+		}, nil
+	}
 	if strings.TrimSpace(finalAgent.Text) == "" {
 		return InferenceResult{}, fmt.Errorf("thread %s finished without final text", actualThreadID)
 	}
@@ -4298,6 +4413,23 @@ func (c *NotionAIClient) RunPromptStreamWithSink(ctx context.Context, req Prompt
 				return InferenceResult{}, err
 			}
 		}
+	}
+	if strings.TrimSpace(finalAgent.Text) == "" && len(parsed.ToolUses) > 0 {
+		// P2-2 修复:tool_use-only 回合合法,连同已解析 ToolUses 一并返回(流式同径)
+		return InferenceResult{
+			Prompt:           cleanPrompt,
+			Model:            strings.TrimSpace(req.PublicModel),
+			NotionModel:      strings.TrimSpace(req.NotionModel),
+			ThreadID:         actualThreadID,
+			TraceID:          traceID,
+			NDJSONLineCount:  parsed.LineCount,
+			RawMessageIDs:    messageIDs,
+			Attachments:      uploadedAttachments,
+			ConfigID:         meta.ConfigID,
+			ContextID:        meta.ContextID,
+			OriginalDatetime: meta.OriginalDatetime,
+			ToolUses:         append([]InferenceToolUse(nil), parsed.ToolUses...),
+		}, nil
 	}
 	if strings.TrimSpace(finalAgent.Text) == "" {
 		return InferenceResult{}, fmt.Errorf("thread %s finished without final text", actualThreadID)

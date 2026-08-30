@@ -44,11 +44,19 @@ type SpaceLifecycle struct {
 // WorkspaceRotator — 工作空间轮换引擎
 type WorkspaceRotator struct {
 	store *SQLiteStore
+	// state — 服务器运行时状态（A1 修复）：每日冷却必须同时写 DB 和刷新内存快照，
+	// 否则当前进程内 dispatch 继续选中该号、反复撞 429；仅重启才生效。
+	state *ServerState
 }
 
 // NewWorkspaceRotator 构造轮换引擎。store 为 nil 时只做 HTTP 操作不持久化。
 func NewWorkspaceRotator(store *SQLiteStore) *WorkspaceRotator {
 	return &WorkspaceRotator{store: store}
+}
+
+// NewWorkspaceRotatorWithState 构造带状态回写的轮换引擎（生产路径应使用此构造）。
+func NewWorkspaceRotatorWithState(store *SQLiteStore, state *ServerState) *WorkspaceRotator {
+	return &WorkspaceRotator{store: store, state: state}
 }
 
 // IsQuotaExhaustedError — 判断推理错误是否为额度耗尽（NDJSON record-map subType="quota-exhausted"）
@@ -116,6 +124,11 @@ func (r *WorkspaceRotator) Rotate(ctx context.Context, cfg AppConfig, session Se
 	client := newNotionAIClient(session, cfg, accountEmail)
 
 	// 轮换是恢复动作，用独立更长超时（不继承请求 60s 预算；createspace 响应可能 30-90s）
+	// 轮换使用脱离请求的独立 ctx（60s 上限）——刻意决策：
+	// ① createspace 正常 30-90s，挂在请求 60s 预算上会把轮换掐死在"新空间建好未就绪"的中间态；
+	// ② 即使本次调用方（ctx 超时/客户端断连）拿不到结果，新空间已建成功，
+	//    本次轮换是对"该账号下一请求"的投资，提前作废会浪费每日 ~6 次的建空间配额。
+	// 代价：极端情况下同账号轮换请求最多堆叠到 60s（由 rotateMinInterval=10min 节流约束总量）。
 	rotateCtx, cancel := context.WithTimeout(context.Background(), rotateHTTPTimeout)
 	defer cancel()
 
@@ -319,6 +332,8 @@ func accountDailyCooldownActive(cfg AppConfig, accountEmail string) (bool, time.
 }
 
 // markAccountDailyCooldown — 标记账号冷却（不删号；冷却过期自动恢复）
+// A1 修复：必须同时刷新内存快照（SaveAndApply），否则仅 sqlite 落盘——
+// 当前进程的 dispatch 快照仍认为该号可用，继续反复打 429（曾经只有重启才生效）。
 func (r *WorkspaceRotator) markAccountDailyCooldown(cfg AppConfig, accountEmail string, d time.Duration) bool {
 	if r == nil || r.store == nil {
 		return false
@@ -327,6 +342,13 @@ func (r *WorkspaceRotator) markAccountDailyCooldown(cfg AppConfig, accountEmail 
 		if strings.EqualFold(strings.TrimSpace(cfg.Accounts[i].Email), strings.TrimSpace(accountEmail)) {
 			cfg.Accounts[i].CooldownUntil = time.Now().Add(d).Format(time.RFC3339)
 			cfg.Accounts[i].LastError = "daily workspace create limit reached (auto recovers)"
+			if r.state != nil {
+				if err := r.state.SaveAndApply(cfg); err != nil {
+					log.Printf("[workspace_rotation] apply cooldown for %s failed: %v", accountEmail, err)
+					return false
+				}
+				return true
+			}
 			if err := r.store.SaveAccounts(cfg); err != nil {
 				log.Printf("[workspace_rotation] save cooldown for %s failed: %v", accountEmail, err)
 			}

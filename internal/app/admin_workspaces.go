@@ -72,7 +72,7 @@ func (a *App) handleAdminWorkspaceRotate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if a.rotator == nil {
-		a.rotator = NewWorkspaceRotator(a.State.Store)
+		a.rotator = NewWorkspaceRotatorWithState(a.State.Store, a.State)
 	}
 	newSession, rerr := a.rotator.Rotate(r.Context(), cfg, session)
 	if rerr != nil {
@@ -120,7 +120,7 @@ func (a *App) handleAdminWorkspaceDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if a.rotator == nil {
-		a.rotator = NewWorkspaceRotator(a.State.Store)
+		a.rotator = NewWorkspaceRotatorWithState(a.State.Store, a.State)
 	}
 	if derr := a.rotator.DeleteSpace(r.Context(), cfg, session, spaceID); derr != nil {
 		writeOpenAIError(w, http.StatusBadGateway, "delete failed: "+derr.Error(), "server_error", "delete_failed")
