@@ -355,3 +355,9 @@ go build + vet 通过；回归套件 22 项全绿，新增 3 项：验证码提�
   adguard/mailtm 收信加 notBefore 时间过滤（复用邮箱排除历史验证码）+ 轮询日志。
 - **mail.tm 坑**：surf Chrome 指纹会强制浏览器 Accept 头，mail.tm 据此回 XML——
   邮服务改用 net/http 纯客户端（newRegisterPlainClient），Notion 侧仍走 surf 指纹。
+
+### 收官证据（2026-08-31 06:45-07:07）
+- 自有空间自然冷却→到点（60min）恢复→后续推理恢复成功；轮换重试零创建秒切池内空间。
+- 新发现：额度是每账号级：同账号 3 空间会在聚合约 30-40 次推理内齐头耗尽，冷却到期后全账号恢复 → 多账号池才是真实扩展杠杆，space_pool 是容错/错峰层。
+- 避免共享空间陷阱：selfJoin 来的空间（quota 在对方订阅下）不允许作为注册默认空间；DB 里 b17d 已永久 exhausted。
+- 池稳定性修复：precreate 的 429 一律不再触发账号级 24h 冷却（"recently submitted" 是频率而非日额），重试由下个 tick 自己消化。
