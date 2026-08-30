@@ -243,7 +243,7 @@ func adguardPickMailbox(mailboxesDir string, detailRoot string) (adguardMailbox,
 }
 
 // adguardWaitCode — 轮询 AdGuard 收信（GET /messages?since_message_id=0 + /message/<id>，
-// cookie: user+mailbox；对齐 Python：超时 420s / 间隔 20s）。
+// cookie: user+mailbox；超时 840s / 间隔 20s——实测 Notion 邮件延迟可到 ~11min）。
 func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox, notBefore time.Time) (string, error) {
 	const apiHome = "https://tempmail.adguard.com"
 	hc, err := newRegisterPlainClient(proxy)
@@ -262,7 +262,9 @@ func adguardWaitCode(ctx context.Context, proxy string, mb adguardMailbox, notBe
 			jar.SetCookies(u, cks)
 		}
 	}
-	deadline := time.Now().Add(420 * time.Second)
+	// 实测 Notion 验证码邮件延迟可达 ~11min（同 IP 密集发送时更慢）：
+	// 420s 必然超时失败 → 放宽到 14min（cs my 注册总超 1200s 仍够走完整链）
+	deadline := time.Now().Add(840 * time.Second)
 	seen := map[string]bool{}
 	polls := 0
 	for time.Now().Before(deadline) {
