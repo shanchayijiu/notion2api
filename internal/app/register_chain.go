@@ -502,11 +502,41 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 			break
 		}
 	}
-	if spaces, ok := gsi["spaces"].(map[string]any); ok && spaceMode != "personal" {
+	spaceViewIDExisting := ""
+	if spaces, ok := gsi["spaces"].(map[string]any); ok {
+		// personal/invite 模式都先复用账号已有空间：
+		// 老账号(8 个 hidesit 邮箱本身都有个人空间)实测 createspace 会 429(每日上限)
 		for sid := range spaces {
 			spaceID = sid
 			break
 		}
+	}
+	// 已有空间顺带挖出它的 spaceViewId（getSpacesInitial 里 view 节点 value 带 spaceId，key 是 view uuid）
+	if spaceID != "" {
+		var scan func(v any, depth int) string
+		scan = func(v any, depth int) string {
+			if depth > 5 {
+				return ""
+			}
+			m, ok := v.(map[string]any)
+			if !ok {
+				return ""
+			}
+			for k, val := range m {
+				vm, ok := val.(map[string]any)
+				if !ok {
+					continue
+				}
+				if sid, _ := vm["spaceId"].(string); sid == spaceID && k != spaceID && len(k) >= 32 {
+					return k
+				}
+				if r := scan(vm, depth+1); r != "" {
+					return r
+				}
+			}
+			return ""
+		}
+		spaceViewIDExisting = scan(gsi, 0)
 	}
 	trace.log(map[string]any{"step": 7, "action": "ids_extracted", "user_id": userID, "user_name": userName, "space_id": spaceID})
 
@@ -517,7 +547,7 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 	if deviceIDForSpace == "" {
 		deviceIDForSpace = deviceID
 	}
-	spaceViewID := ""
+	spaceViewID := spaceViewIDExisting
 	if spaceID == "" && spaceMode != "personal" {
 		rawJoin, stJoin, _ := notionPost(ctx, hc, "/getJoinableSpaces",
 			map[string]any{"excludeUnactionableSpaces": false}, cv, registerNotionAppHome+"/onboarding", nil)
