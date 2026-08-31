@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 	"strings"
 	"time"
 )
@@ -70,6 +71,36 @@ func countPoolSpaces(items []SpaceLifecycle) (active, cooldown int) {
 	return active, cooldown
 }
 
+// precreateFailCool — createspace 已基于 429 "recently submitted" 示得极限：
+// 账号窗口在每次请求时刷新，继续轰炸永不开端口。记录 per-account 最近预建失败时间，
+// 冷却 window 内直接跳过（进程级；重启清重来，填一个周期失败足以）。
+var precreateFailCool = struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+}{until: map[string]time.Time{}}
+
+const precreateFailCooldown = 30 * time.Minute
+
+func precreateRecentlyFailed(email string) bool {
+	precreateFailCool.mu.Lock()
+	defer precreateFailCool.mu.Unlock()
+	until, ok := precreateFailCool.until[email]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(precreateFailCool.until, email)
+		return false
+	}
+	return true
+}
+
+func markPrecreateFailed(email string) {
+	precreateFailCool.mu.Lock()
+	defer precreateFailCool.mu.Unlock()
+	precreateFailCool.until[email] = time.Now().Add(precreateFailCooldown)
+}
+
 // ensureSpacePoolToppedUp — 每号预建到 target 个空间（active+cooldown 合计数）。
 // 每个 tick 每号最多创建 1 个，且尊重单账号 rotateMinInterval（贴近真实用户节奏，
 // 防每日 createspace 配额打爆/账号级 429 风控）。
@@ -93,9 +124,14 @@ func (a *App) ensureSpacePoolToppedUp(ctx context.Context, cfg AppConfig, sc Spa
 		if lastCreated, ok := lastSpaceCreatedAt(items); ok && time.Since(lastCreated) < rotateMinInterval {
 			continue
 		}
+		// 上 skę 预建失败 >= precreateFailCooldown 内热重试 = 账号 429 窗口会一直被重置
+		if precreateRecentlyFailed(acc.Email) {
+			continue
+		}
 		log.Printf("[workspace_pool] account %s pool low: active=%d cooldown=%d target=%d -> precreate 1", acc.Email, active, cooldown, target)
 		if err := a.createPoolSpace(ctx, cfg, acc); err != nil {
 			log.Printf("[workspace_pool] precreate failed for %s: %v", acc.Email, err)
+			markPrecreateFailed(acc.Email)
 		}
 	}
 }
