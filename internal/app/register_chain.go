@@ -9,6 +9,7 @@ package app
 // 纯 HTTP（surf Chrome 指纹 + 标准 cookiejar），Docker 容器内原生可跑，无 python/playwright。
 
 import (
+	"math/rand"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -374,12 +375,15 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		trace.log(map[string]any{"step": 1, "action": "mail_ok", "email": email, "domain": domain, "attempt": attempt})
 
 		// 重开 session（避免上一轮 invalid_email_domain 的 cookie 干扰）
+		// opts.Proxy 支持逗号分隔多出口（mihomo 锚定端口池），每次尝试随机挑一个
+		proxyPick := randomProxyFromList(opts.Proxy)
+		trace.log(map[string]any{"step": 1, "action": "proxy_pick", "proxy": proxyPick, "attempt": attempt})
 		var err error
-		hc, err = newSurfStdClient(opts.Proxy)
+		hc, err = newSurfStdClient(proxyPick)
 		if err != nil {
 			return registerGoResult{}, fmt.Errorf("http client: %w", err)
 		}
-		hc.Timeout = 30 * time.Second
+		hc.Timeout = 90 * time.Second
 
 		// Step 2: GET /signup 种 cookie
 		{
@@ -1065,6 +1069,25 @@ func truncateStr(s string, n int) string {
 		return s[:n] + "..."
 	}
 	return s
+}
+
+// randomProxyFromList — 逗号分隔出口列表随机挑一；单出口原样返回
+func randomProxyFromList(csv string) string {
+	parts := strings.Split(csv, ",")
+	valid := parts[:0]
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			valid = append(valid, p)
+		}
+	}
+	if len(valid) == 0 {
+		return ""
+	}
+	if len(valid) == 1 {
+		return valid[0]
+	}
+	return valid[rand.Intn(len(valid))]
 }
 
 // removeDirQuiet — 节流重试用：尝试目录删除以便下一轮可复用同一邮箱

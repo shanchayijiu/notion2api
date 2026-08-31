@@ -58,6 +58,10 @@ func (r *ProxyResolver) ResolveProxyForRequest(accountEmail string, target *url.
 }
 
 func parseProxyURL(raw string) (*url.URL, error) {
+	raw = randomProxyFromList(raw) // 支持逗号分隔多个锚定出口（mihomo 18940-49），请求级随机轮换
+	if raw == "" {
+		return nil, fmt.Errorf("empty proxy")
+	}
 	clean := strings.TrimSpace(raw)
 	if clean == "" {
 		return nil, nil
