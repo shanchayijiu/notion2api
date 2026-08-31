@@ -203,7 +203,8 @@ type RegisterConfig struct {
 	TimeoutSec       int    `json:"timeout_sec,omitempty"`          // 单次注册超时,默认 180
 	MinHealthy       int    `json:"min_healthy_accounts,omitempty"` // 池健康水位:健康账号低于此值时补 1 个
 	CheckIntervalSec int    `json:"check_interval_sec,omitempty"`   // 水位巡检周期,默认 600
-	MailProvider     string `json:"mail_provider,omitempty"`        // 邮箱源：mailtm（默认，纯 HTTP）/ adguard（复用已建 mailbox cookie）
+	MailProvider     string `json:"mail_provider,omitempty"`        // 邮箱源：guerrillamail（默认，纯 HTTP 无限地址）/ mailtm / adguard（复用已建 mailbox cookie）
+	MaxParallel      int    `json:"max_parallel,omitempty"`         // 并行注册并发数（默认 3；扩大池规模时用）
 	SpaceMode        string `json:"space_mode,omitempty"`           // 空间模式：invite（默认，被邀优先+personal 兜底）/ personal（直接自建）
 }
 

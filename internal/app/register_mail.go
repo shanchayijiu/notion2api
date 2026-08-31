@@ -387,3 +387,155 @@ func parseRFC3339Loose(v string) time.Time {
 	}
 	return time.Time{}
 }
+
+// ── guerrillamail 提供器（2026-08-31 新接入）─────────────────────────────────
+// 全纯 HTTP ajax API，无鉴权；无限地址 → 号池扩容到 100+ 的邮源。
+// 实测 Notion 接受域名：guerrillamailblock.com / spam4.me / guerrillamail.info /
+// guerrillamail.net / guerrillamail.de（sharklasers/grr.la 被拒）。
+// 复用契约：get_email_address → 地址+sid_token；set_email_user 可固定用户名；
+// check_email 列信；fetch_email 取正文。sid_token 长有效，收件箱随地址留存。
+// 用户名字符集：纯小写字母数字下划线（guerrillamail 限制）。
+
+const guerrillaApiBase = "https://api.guerrillamail.com/ajax.php"
+
+// guerrillaAcceptedDomains — 实测 Notion 接受的 guerrillamail 族域名（轮换防单域聚类）
+var guerrillaAcceptedDomains = []string{
+	"guerrillamailblock.com", "spam4.me", "guerrillamail.info", "guerrillamail.net", "guerrillamail.de",
+}
+
+type guerrillaMailbox struct {
+	Address string `json:"address"`
+	SidToken string `json:"sid_token"`
+}
+
+func guerrillaCall(ctx context.Context, proxy string, f string, params url.Values, out any) error {
+	hc, err := newRegisterPlainClient(proxy)
+	if err != nil {
+		return err
+	}
+	defer hc.CloseIdleConnections()
+	_ = hc
+	q := url.Values{}
+	q.Set("f", f)
+	q.Set("ip", fmt.Sprintf("%d.%d.%d.%d", 64+rand.Intn(60), rand.Intn(255), rand.Intn(255), rand.Intn(254)+1))
+	q.Set("agent", "DSH_register")
+	for k, vs := range params {
+		for _, v := range vs {
+			q.Set(k, v)
+		}
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", guerrillaApiBase+"?"+q.Encode(), nil)
+	req.Header.Set("User-Agent", registerUA)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("guerrillamail %s: status=%d body=%s", f, resp.StatusCode, truncateBytes(raw, 200))
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// guerrillaNewMailbox — 新建邮箱：get_email_address（拿 sid）→ set_email_user（随机用户名+轮换域名）
+func guerrillaNewMailbox(ctx context.Context, proxy string) (guerrillaMailbox, error) {
+	var r1 struct {
+		EmailAddr string `json:"email_addr"`
+		SidToken  string `json:"sid_token"`
+	}
+	if err := guerrillaCall(ctx, proxy, "get_email_address", nil, &r1); err != nil {
+		return guerrillaMailbox{}, err
+	}
+	if r1.SidToken == "" {
+		return guerrillaMailbox{}, fmt.Errorf("guerrillamail get_email_address: no sid_token")
+	}
+	// 固定邮箱名：regex 允许的 [a-z0-9_]
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 8)
+	for i := range b {
+		b[i] = chars[rand.Intn(len(chars))]
+	}
+	name := "n2a" + string(b)
+	var r2 struct {
+		EmailAddr string `json:"email_addr"`
+	}
+	p := url.Values{"email_user": {name}, "sid_token": {r1.SidToken}}
+	// ajax API set_email_user 只改用户名不改域；域轮换取决于账号批次时的 get_email_address 默认域。
+	// guerrillaAcceptedDomains 中均实测 Notion 接受；后续可在邮箱批次级均衡分布。
+	if err := guerrillaCall(ctx, proxy, "set_email_user", p, &r2); err != nil {
+		// set_email_user 失败不致命：用自动分配的地址
+		if r1.EmailAddr != "" {
+			return guerrillaMailbox{Address: r1.EmailAddr, SidToken: r1.SidToken}, nil
+		}
+		return guerrillaMailbox{}, err
+	}
+	addr := r2.EmailAddr
+	if addr == "" {
+		addr = r1.EmailAddr
+	}
+	if addr == "" {
+		return guerrillaMailbox{}, fmt.Errorf("guerrillamail: empty address after set_email_user")
+	}
+	log.Printf("[register_mail] guerrillamail new mailbox: %s", addr)
+	return guerrillaMailbox{Address: addr, SidToken: r1.SidToken}, nil
+}
+
+// guerrillaWaitCode — 轮询 check_email → fetch_email 提取验证码（复用 extractNotionCode）
+func guerrillaWaitCode(ctx context.Context, proxy string, mb guerrillaMailbox, notBefore time.Time) (string, error) {
+	deadline := time.Now().Add(840 * time.Second)
+	seen := map[int64]bool{}
+	polls := 0
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		polls++
+		var list struct {
+			List []struct {
+				MailID      int64  `json:"mail_id"`
+				MailFrom    string `json:"mail_from"`
+				MailSubject string `json:"mail_subject"`
+				MailPreview string `json:"mail_excerpt"`
+				MailTimestamp string `json:"mail_timestamp"`
+				MailDate    string `json:"mail_date"`
+			} `json:"list"`
+		}
+		err := guerrillaCall(ctx, proxy, "check_email", url.Values{"sid_token": {mb.SidToken}, "seq": {"0"}}, &list)
+		if err != nil {
+			log.Printf("[register_mail] guerrillamail poll #%d mailbox=%s error: %v", polls, mb.Address, err)
+		} else {
+			log.Printf("[register_mail] guerrillamail poll #%d mailbox=%s seen_msgs=%d", polls, mb.Address, len(list.List))
+			for _, m := range list.List {
+				if seen[m.MailID] {
+					continue
+				}
+				seen[m.MailID] = true
+				if !strings.Contains(strings.ToLower(m.MailFrom), "notion") {
+					continue
+				}
+				// 抓全文：mail_body 是 HTML（magic-link 变体密码在 href 里）
+				var full struct {
+					MailBody string `json:"mail_body"`
+					MailDate string `json:"mail_date"`
+				}
+				if err := guerrillaCall(ctx, proxy, "fetch_email", url.Values{
+					"sid_token": {mb.SidToken}, "email_id": {fmt.Sprintf("%d", m.MailID)},
+				}, &full); err != nil {
+					continue
+				}
+				body := full.MailBody
+				hay := m.MailSubject + "\n" + stripHTML(body) + "\n" + body
+				if code := extractNotionCode(hay); code != "" {
+					return code, nil
+				}
+			}
+		}
+		if !sleepCtx(ctx, 15*time.Second) {
+			return "", ctx.Err()
+		}
+	}
+	return "", fmt.Errorf("guerrillamail code wait timeout after 840s")
+}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -117,6 +118,11 @@ func (a *App) startAccountReconcilerLoop(ctx context.Context) {
 		if rc.Enabled {
 			a.reconcileAccountPoolLevel(ctx, rc)
 		}
+		// 欠水位时立刻进入下一巡，直到补满；满水位按周期巡检
+		healthy, _ := countHealthyAccounts(cfg)
+		if healthy < rc.MinHealthy && rc.Enabled {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -124,24 +130,47 @@ func (a *App) startAccountReconcilerLoop(ctx context.Context) {
 		}
 	}
 }
-
 // reconcileAccountPoolLevel — 单次巡检：计算健康水位，低于 min_healthy 补 1 个
 // （慢节奏 + 单次 1 个：防注册机/上游被注册流量打爆）
 func (a *App) reconcileAccountPoolLevel(parent context.Context, rc RegisterConfig) {
 	cfg, _, _ := a.State.Snapshot()
 	healthy, total := countHealthyAccounts(cfg)
 	log.Printf("[register_reconciler] pool health: healthy=%d total=%d min_healthy=%d", healthy, total, rc.MinHealthy)
-	if healthy >= rc.MinHealthy {
+	deficit := rc.MinHealthy - healthy
+	if deficit <= 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(parent, time.Duration(rc.TimeoutSec)*time.Second)
-	defer cancel()
-	email, err := a.RegisterNewAccount(ctx, rc.Proxy)
-	if err != nil {
-		log.Printf("[register_reconciler] auto-replenish failed: %v", err)
-		return
+	maxP := rc.MaxParallel
+	if maxP <= 0 {
+		maxP = 3
 	}
-	log.Printf("[register_reconciler] auto-replenished account=%s", email)
+	if deficit > maxP {
+		deficit = maxP
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < deficit; i++ {
+		wg.Add(1)
+		go func(slot int) {
+			defer wg.Done()
+			// 错峰启动：注册/邮件服务都不宜瞬时并发
+			if slot > 0 {
+				select {
+				case <-parent.Done():
+					return
+				case <-time.After(time.Duration(slot) * 45 * time.Second):
+				}
+			}
+			ctx, cancel := context.WithTimeout(parent, time.Duration(rc.TimeoutSec)*time.Second)
+			defer cancel()
+			email, err := a.RegisterNewAccount(ctx, rc.Proxy)
+			if err != nil {
+				log.Printf("[register_reconciler] auto-replenish failed (slot=%d): %v", slot, err)
+				return
+			}
+			log.Printf("[register_reconciler] auto-replenished account=%s (slot=%d)", email, slot)
+		}(i)
+	}
+	wg.Wait()
 }
 
 // countHealthyAccounts — 统计池内"当前可用"账号数（非 disabled、有 artifact、不在冷却）

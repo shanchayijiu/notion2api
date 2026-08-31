@@ -285,6 +285,7 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		email       string
 		mailAcc     mailTmAccount
 		adgMB       adguardMailbox
+		grrMB       guerrillaMailbox
 		hc          *http.Client
 		loToken     string
 		csrfState   string
@@ -299,7 +300,21 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		trace.log(map[string]any{"phase": "email_retry", "attempt": attempt, "bad_domains": keysOf(badDomains)})
 
 		// Step 1: 临时邮箱
-		if mailProvider == "adguard" {
+		if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
+			mb, err := guerrillaNewMailbox(ctx, opts.Proxy)
+			if err != nil {
+				trace.log(map[string]any{"step": 1, "action": "mail_gen_fail", "err": err.Error(), "attempt": attempt, "provider": "guerrillamail"})
+				if attempt == registerMaxEmailAttempts-1 {
+					return registerGoResult{}, err
+				}
+				if !sleepCtx(ctx, 2*time.Second) {
+					return registerGoResult{}, ctx.Err()
+				}
+				continue
+			}
+			grrMB = mb
+			email = mb.Address
+		} else if mailProvider == "adguard" {
 			mb, err := adguardPickMailbox(mailboxesDir, detailRoot)
 			if err != nil {
 				trace.log(map[string]any{"step": 1, "action": "mail_gen_fail", "err": err.Error(), "attempt": attempt})
@@ -482,7 +497,9 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		trace.log(map[string]any{"step": 5, "action": "wait_for_code_start", "provider": mailProvider, "try": loginTry})
 		var code string
 		var codeErr error
-		if mailProvider == "adguard" {
+		if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
+			code, codeErr = guerrillaWaitCode(ctx, opts.Proxy, grrMB, notBefore)
+		} else if mailProvider == "adguard" {
 			code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB, notBefore)
 		} else {
 			code, codeErr = mailTmWaitCode(ctx, mailAcc, notBefore)
