@@ -141,7 +141,8 @@ func outlookPickAddress(accounts []outlookAccount, detailRoot string) (outlookAc
 			continue
 		}
 		dir := filepath.Join(detailRoot, strings.ReplaceAll(addr, "/", "_"))
-		if _, err := os.Stat(filepath.Join(dir, "probe.json")); err == nil {
+		// 目录已存在即视为该邮箱已烧：成功（probe.json 在）或失败（只有 account.json）都不再复用
+		if _, err := os.Stat(dir); err == nil {
 			continue
 		}
 		return a, nil

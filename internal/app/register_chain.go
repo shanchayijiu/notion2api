@@ -480,6 +480,21 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 				}
 			}
 			trace.log(map[string]any{"step": 4, "action": "no_csrf_state_diag", "client_data_type": cdType, "name": errName, "status": st, "response_short": truncateBytes(raw, 400), "attempt": attempt})
+			if errName == "UserValidationError" && cdType == "signup_generic_error" {
+				// Notion 的注册节流（IP 级瞬时冒头）。保留邮箱，同邮箱退避重试
+				trace.log(map[string]any{"step": 4, "action": "signup_throttled", "domain": domain, "attempt": attempt})
+				if attempt == registerMaxEmailAttempts-1 {
+					writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "signup_throttled", "step": 4, "attempt": attempt})
+					// 标记为可复用：删掉墓碑目录
+					_ = removeDirQuiet(accountDir)
+					return registerGoResult{}, fmt.Errorf("signup throttled by Notion (5 attempts)")
+				}
+				attempt-- // 不计入消耗新邮箱的次数
+				if !sleepCtx(ctx, 60*time.Second) {
+					return registerGoResult{}, ctx.Err()
+				}
+				continue
+			}
 			if cdType == "invalid_email_domain" || errName == "UserValidationError" {
 				badDomains[domain] = true
 				trace.log(map[string]any{"step": 4, "action": "invalid_email_domain_skip", "domain": domain, "attempt": attempt})
@@ -1042,4 +1057,12 @@ func truncateStr(s string, n int) string {
 		return s[:n] + "..."
 	}
 	return s
+}
+
+// removeDirQuiet — 节流重试用：尝试目录删除以便下一轮可复用同一邮箱
+func removeDirQuiet(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	return os.RemoveAll(dir)
 }
