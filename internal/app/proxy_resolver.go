@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 )
@@ -36,6 +37,9 @@ func (r *ProxyResolver) ResolveProxyForRequest(accountEmail string, target *url.
 			return nil, nil, nil
 		}
 		parsed, err := parseProxyURL(raw)
+		if err == nil && parsed != nil && strings.Contains(raw, ",") {
+			log.Printf("[proxy_rotation] account=%s pick_port=%s url=%s", accountEmail, parsed.Port(), target.Host)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
