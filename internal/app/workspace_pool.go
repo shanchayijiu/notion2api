@@ -72,14 +72,16 @@ func countPoolSpaces(items []SpaceLifecycle) (active, cooldown int) {
 }
 
 // precreateFailCool — createspace 已基于 429 "recently submitted" 示得极限：
-// 账号窗口在每次请求时刷新，继续轰炸永不开端口。记录 per-account 最近预建失败时间，
-// 冷却 window 内直接跳过（进程级；重启清重来，填一个周期失败足以）。
+// 账号窗口在每次请求时刷新，继续轰炸永不开端口。per-account 指数退避：
+// 第 n 次连续失败 -> 30m * 2^(n-1)（封顶 8h），预建成功后计数重置。
 var precreateFailCool = struct {
 	mu    sync.Mutex
 	until map[string]time.Time
-}{until: map[string]time.Time{}}
+	fails map[string]int
+}{until: map[string]time.Time{}, fails: map[string]int{}}
 
-const precreateFailCooldown = 30 * time.Minute
+const precreateFailBaseCooldown = 30 * time.Minute
+const precreateFailMaxCooldown = 8 * time.Hour
 
 func precreateRecentlyFailed(email string) bool {
 	precreateFailCool.mu.Lock()
@@ -98,7 +100,24 @@ func precreateRecentlyFailed(email string) bool {
 func markPrecreateFailed(email string) {
 	precreateFailCool.mu.Lock()
 	defer precreateFailCool.mu.Unlock()
-	precreateFailCool.until[email] = time.Now().Add(precreateFailCooldown)
+	n := precreateFailCool.fails[email] + 1
+	precreateFailCool.fails[email] = n
+	cool := precreateFailBaseCooldown
+	for i := 1; i < n; i++ {
+		cool *= 2
+		if cool > precreateFailMaxCooldown {
+			cool = precreateFailMaxCooldown
+			break
+		}
+	}
+	precreateFailCool.until[email] = time.Now().Add(cool)
+}
+
+func markPrecreateSucceeded(email string) {
+	precreateFailCool.mu.Lock()
+	defer precreateFailCool.mu.Unlock()
+	precreateFailCool.fails[email] = 0
+	delete(precreateFailCool.until, email)
 }
 
 // ensureSpacePoolToppedUp — 每号预建到 target 个空间（active+cooldown 合计数）。
@@ -197,6 +216,7 @@ func (a *App) createPoolSpace(ctx context.Context, cfg AppConfig, acc NotionAcco
 		}
 	}
 	rotator.recordLifecycle(spaceID, acc.Email, spaceStatusActive, "", viewID)
+	markPrecreateSucceeded(acc.Email)
 	log.Printf("[workspace_pool] pre-created space %s for %s (view=%s)", spaceID, acc.Email, viewID)
 	return nil
 }
