@@ -684,7 +684,13 @@ func loadSessionInfo(probePath string, userName string, spaceName string) (Sessi
 	if strings.TrimSpace(payload.Email) == "" {
 		return SessionInfo{}, fmt.Errorf("probe json missing email: %s", absPath)
 	}
-	if strings.TrimSpace(payload.UserID) == "" || strings.TrimSpace(payload.SpaceID) == "" || strings.TrimSpace(payload.ClientVersion) == "" {
+	spaceID := strings.TrimSpace(payload.SpaceID)
+	if spaceID == "" {
+		// spaceless 注册产物：允许空 space_id，仅用于 workspace_pool 预建（createspace 不依赖此字段）。
+		// 请求路径 x-notion-space-id 空值会被 baseHeaders 自动丢弃，安全。
+		log.Printf("[probe] %s has empty space_id (spaceless register); usable for pool-precreate only", absPath)
+	}
+	if strings.TrimSpace(payload.UserID) == "" || strings.TrimSpace(payload.ClientVersion) == "" {
 		return SessionInfo{}, fmt.Errorf("probe json missing required fields: %s", absPath)
 	}
 	if len(payload.Cookies) == 0 {

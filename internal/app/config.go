@@ -206,6 +206,8 @@ type RegisterConfig struct {
 	MailProvider     string `json:"mail_provider,omitempty"`        // 邮箱源：guerrillamail（默认，纯 HTTP 无限地址）/ mailtm / adguard（复用已建 mailbox cookie）
 	MaxParallel      int    `json:"max_parallel,omitempty"`         // 并行注册并发数（默认 3；扩大池规模时用）
 	SpaceMode        string `json:"space_mode,omitempty"`           // 空间模式：invite（默认，被邀优先+personal 兜底）/ personal（直接自建）
+	OutlookBaseURL   string `json:"outlook_base_url,omitempty"`     // outlook 邮池地址（mail_provider=outlook 时必填）
+	OutlookPassword  string `json:"outlook_password,omitempty"`     // outlook 邮池 web 登录密码
 }
 
 // SpacePoolConfig — 工作空间预建+冷却恢复池（配额可恢复轮换）：

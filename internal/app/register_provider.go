@@ -52,6 +52,8 @@ func (a *App) RegisterNewAccount(parent context.Context, proxy string) (string, 
 		MailProvider: rc.MailProvider,
 		SpaceMode:    rc.SpaceMode,
 		OutputRoot:   root,
+		OutlookBaseURL:  strings.TrimSpace(rc.OutlookBaseURL),
+		OutlookPassword: strings.TrimSpace(rc.OutlookPassword),
 	})
 	if err != nil {
 		return "", err

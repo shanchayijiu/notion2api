@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -33,9 +34,16 @@ const (
 	registerUA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 	registerSecChUa = `"Chromium";v="147", "Not.A/Brand";v="8"`
 
-	registerClientVersionDefault = "23.13.20260720.1949"
+	registerClientVersionDefault = "23.13.0.20260811.1552"
+)
+
+var reNotionDataVersion = regexp.MustCompile(`data-notion-version="([0-9._-]+)"`)
+var reFivePartVersion = regexp.MustCompile(`^23\.[0-9]+\.[0-9]+\.(19|20)[0-9]{6}\.[0-9]+$`)
+
+const (
 	registerMaxEmailAttempts     = 5
 	registerBarrelSize           = 50
+	registerAllowSpaceless       = true
 )
 
 // registerGoOptions — Go 注册链入参（由 register_provider 从配置汇总）
@@ -43,8 +51,10 @@ type registerGoOptions struct {
 	Proxy        string
 	Password     string
 	MailProvider string // "mailtm"（默认）| "adguard"
-	SpaceMode    string // "invite"（默认，被邀优先）| "personal"
-	OutputRoot   string // register 根：accounts/ logs/ mailboxes/ 都在其下
+	SpaceMode      string // "invite"（默认，被邀优先）| "personal"
+	OutputRoot     string // register 根：accounts/ logs/ mailboxes/ 都在其下
+	OutlookBaseURL string // mail_provider=outlook：outlook-mail 容器基址
+	OutlookPassword string // mail_provider=outlook：outlook-mail web 登录密码
 }
 
 // registerGoResult — 注册链产物摘要
@@ -286,6 +296,7 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		mailAcc     mailTmAccount
 		adgMB       adguardMailbox
 		grrMB       guerrillaMailbox
+		outlookPoolH *outlookPool
 		hc          *http.Client
 		loToken     string
 		csrfState   string
@@ -300,7 +311,22 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		trace.log(map[string]any{"phase": "email_retry", "attempt": attempt, "bad_domains": keysOf(badDomains)})
 
 		// Step 1: 临时邮箱
-		if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
+		if mailProvider == "outlook" {
+			if outlookPoolH == nil {
+				outlookPoolH = newOutlookPool(strings.TrimSpace(opts.OutlookBaseURL), strings.TrimSpace(opts.OutlookPassword), opts.Proxy)
+			}
+			accs, lerr := outlookPoolH.listAccounts(ctx)
+			if lerr != nil {
+				trace.log(map[string]any{"step": 1, "action": "mail_list_fail", "err": lerr.Error(), "attempt": attempt})
+				return registerGoResult{}, lerr
+			}
+			acc, perr := outlookPickAddress(accs, detailRoot)
+			if perr != nil {
+				return registerGoResult{}, perr
+			}
+			email = strings.ToLower(strings.TrimSpace(acc.Email))
+			trace.log(map[string]any{"step": 1, "action": "outlook_mailbox_selected", "email": email})
+		} else if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
 			mb, err := guerrillaNewMailbox(ctx, opts.Proxy)
 			if err != nil {
 				trace.log(map[string]any{"step": 1, "action": "mail_gen_fail", "err": err.Error(), "attempt": attempt, "provider": "guerrillamail"})
@@ -373,9 +399,19 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 				}
 				continue
 			}
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
-			trace.log(map[string]any{"step": 2, "action": "get_signup_resp", "status": resp.StatusCode})
+			// 2026-08-31 实录：过期 clientVersion 会让上游把所有新域名报
+			// UserValidationError(email_unreachable)。signup HTML 里嵌入
+			// data-notion-version="<current>"；常作为 getAppConfig 的兜底源。
+			// 只采纳五段式版本（23.13.N.YYYYMMDD.HHMM）：四段式被服务端邮件闸口拒，
+			// 未来日期也被拒(2026-08-31 矩阵实测)。格式不符回落 proven 常量。
+			if m := reNotionDataVersion.FindSubmatch(body); m != nil {
+				if v := string(m[1]); reFivePartVersion.MatchString(v) {
+					cv = v
+				}
+			}
+			trace.log(map[string]any{"step": 2, "action": "get_signup_resp", "status": resp.StatusCode, "client_version": cv})
 		}
 
 		// getAppConfig（失败可降权）
@@ -497,7 +533,9 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		trace.log(map[string]any{"step": 5, "action": "wait_for_code_start", "provider": mailProvider, "try": loginTry})
 		var code string
 		var codeErr error
-		if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
+		if mailProvider == "outlook" {
+			code, codeErr = outlookWaitCode(ctx, outlookPoolH, email, notBefore)
+		} else if mailProvider == "guerrillamail" || mailProvider == "guerrilla" {
 			code, codeErr = guerrillaWaitCode(ctx, opts.Proxy, grrMB, notBefore)
 		} else if mailProvider == "adguard" {
 			code, codeErr = adguardWaitCode(ctx, opts.Proxy, adgMB, notBefore)
@@ -713,6 +751,10 @@ gsiDone:
 	}
 	if spaceID == "" {
 		// 自建 personal（9 字段精确 body；deviceId = notion_browser_id cookie）
+		// 新号首个 createspace 服务端可 >30s，临时放宽本链 client 超时
+		prevTimeout := hc.Timeout
+		hc.Timeout = 120 * time.Second
+		defer func() { hc.Timeout = prevTimeout }()
 		trace.log(map[string]any{"step": "7.5", "action": "self_build_personal_start"})
 		local := email
 		if at := strings.Index(email, "@"); at >= 0 {
@@ -761,8 +803,14 @@ gsiDone:
 		}
 		trace.log(map[string]any{"step": "7.5", "action": "self_build_personal_resp", "status": st, "space_id": spaceID, "space_view_id": spaceViewID})
 		if spaceID == "" {
-			writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "space_acquire_failed", "step": "7.5", "status_code": st})
-			return registerGoResult{}, fmt.Errorf("createspace 未获 space_id: status=%d body=%s", st, truncateBytes(raw, 300))
+			// 极端：createspace 全败（Notion 边缘 504/网络抖动）。保留账号本体（token_v2/密码都在），
+			// 空间让 space_pool 预建流程稍后补建，不浪费邮箱+账号。
+			if registerAllowSpaceless {
+				trace.log(map[string]any{"step": "7.5", "action": "spaceless_continue"})
+			} else {
+				writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "space_acquire_failed", "step": "7.5", "status_code": st})
+				return registerGoResult{}, fmt.Errorf("createspace 未获 space_id: status=%d body=%s", st, truncateBytes(raw, 300))
+			}
 		}
 	}
 
