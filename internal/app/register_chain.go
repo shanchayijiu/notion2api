@@ -303,8 +303,9 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 		cv          = registerClientVersionDefault
 		country     string
 		accountDir  string
-		triedDirs   []string
-		badDomains  = map[string]bool{}
+		triedDirs      []string
+		badDomains     = map[string]bool{}
+		throttleHits   int
 	)
 
 	for attempt := 0; attempt < registerMaxEmailAttempts; attempt++ {
@@ -482,15 +483,22 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 			trace.log(map[string]any{"step": 4, "action": "no_csrf_state_diag", "client_data_type": cdType, "name": errName, "status": st, "response_short": truncateBytes(raw, 400), "attempt": attempt})
 			if errName == "UserValidationError" && cdType == "signup_generic_error" {
 				// Notion 的注册节流（IP 级瞬时冒头）。保留邮箱，同邮箱退避重试
-				trace.log(map[string]any{"step": 4, "action": "signup_throttled", "domain": domain, "attempt": attempt})
-				if attempt == registerMaxEmailAttempts-1 {
-					writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "signup_throttled", "step": 4, "attempt": attempt})
+				throttleHits++
+				trace.log(map[string]any{"step": 4, "action": "signup_throttled", "domain": domain, "attempt": attempt, "throttle_hits": throttleHits})
+				if throttleHits >= 12 {
+					writeAccountJSON(accountDir, map[string]any{"email": email, "password": password, "status": "signup_throttled", "step": 4, "throttle_hits": throttleHits})
 					// 标记为可复用：删掉墓碑目录
 					_ = removeDirQuiet(accountDir)
-					return registerGoResult{}, fmt.Errorf("signup throttled by Notion (5 attempts)")
+					return registerGoResult{}, fmt.Errorf("signup throttled by Notion (%d hits)", throttleHits)
 				}
 				attempt-- // 不计入消耗新邮箱的次数
-				if !sleepCtx(ctx, 60*time.Second) {
+				// 退避阶梯：60s → 120 → 240 → 480 → 600s（封顶 10 分钟）
+				mult := 1 << max(throttleHits-1, 0)
+				if mult > 10 {
+					mult = 10
+				}
+				backoff := time.Duration(60*mult) * time.Second
+				if !sleepCtx(ctx, backoff) {
 					return registerGoResult{}, ctx.Err()
 				}
 				continue
