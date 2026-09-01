@@ -10,11 +10,14 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math/rand"
 	"net/http"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 )
+
+func init() { rand.Seed(time.Now().UnixNano()) }
 
 // startSpacePoolLoop — 后台巡检：冷却到点自动恢复 + 池水位补齐。
 // space_pool.enabled=false 时空转（tick 时回看配置，热更生效）。
@@ -71,17 +74,45 @@ func countPoolSpaces(items []SpaceLifecycle) (active, cooldown int) {
 	return active, cooldown
 }
 
-// precreateFailCool — createspace 已基于 429 "recently submitted" 示得极限：
-// 账号窗口在每次请求时刷新，继续轰炸永不开端口。per-account 指数退避：
-// 第 n 次连续失败 -> 30m * 2^(n-1)（封顶 8h），预建成功后计数重置。
+// precreateFailCool — 预建失败 per-account 指数退避（人类节奏实测：1-2 分钟/次没问题，
+// 但同一账号连续失败时停手观察，避免把账号打进长冷却）。
+// 第 n 次连续失败 -> 2m * 2^(n-1)（封顶 30m），预建成功后计数重置。
 var precreateFailCool = struct {
 	mu    sync.Mutex
 	until map[string]time.Time
 	fails map[string]int
 }{until: map[string]time.Time{}, fails: map[string]int{}}
 
-const precreateFailBaseCooldown = 30 * time.Minute
-const precreateFailMaxCooldown = 8 * time.Hour
+const precreateFailBaseCooldown = 2 * time.Minute
+const precreateFailMaxCooldown = 30 * time.Minute
+
+// poolPrecreateSuccessGap — 同一账号创建成功后的最小间隔（人类手动点击节奏）。
+const poolPrecreateSuccessGap = 2 * time.Minute
+
+// poolLastAttempt / poolAttemptGap — 全局节奏：每次 tick 最多发起 1 个 createspace，
+// 且两次发起之间随机间隔 60~120s（贴近真人点击，不把 100 个账号在分钟级扫完）。
+var (
+	poolAttemptMu     sync.Mutex
+	poolLastAttempt   time.Time
+	poolAttemptGap    = 90 * time.Second
+	poolAttemptJitter = 30 * time.Second
+)
+
+func poolAttemptGate() bool {
+	poolAttemptMu.Lock()
+	defer poolAttemptMu.Unlock()
+	if poolLastAttempt.IsZero() {
+		return true
+	}
+	gap := poolAttemptGap + time.Duration(rand.Intn(int(2*poolAttemptJitter))) - poolAttemptJitter
+	return time.Since(poolLastAttempt) >= gap
+}
+
+func poolMarkAttempt() {
+	poolAttemptMu.Lock()
+	defer poolAttemptMu.Unlock()
+	poolLastAttempt = time.Now()
+}
 
 func precreateRecentlyFailed(email string) bool {
 	precreateFailCool.mu.Lock()
@@ -121,10 +152,15 @@ func markPrecreateSucceeded(email string) {
 }
 
 // ensureSpacePoolToppedUp — 每号预建到 target 个空间（active+cooldown 合计数）。
-// 每个 tick 每号最多创建 1 个，且尊重单账号 rotateMinInterval（贴近真实用户节奏，
-// 防每日 createspace 配额打爆/账号级 429 风控）。
+// 节奏按真人行为建模（实测 1-2 分钟/次没问题）：
+//   - 每个 tick 全局最多发起 1 个 createspace，且全局发起间隔随机 60~120s；
+//   - 同一账号创建成功后至少隔 poolPrecreateSuccessGap（2m）再建；
+//   - 同一账号连续失败时指数退避，避免把账号打进长冷却。
+//
+// 一个 tick 随机挑一个欠池账号尝试，而不是分钟级扫完全部账号。
 func (a *App) ensureSpacePoolToppedUp(ctx context.Context, cfg AppConfig, sc SpacePoolConfig) {
 	target := sc.TargetPerAccount
+	var candidates []NotionAccount
 	for _, acc := range cfg.Accounts {
 		if !cfgSpaceEligible(cfg, acc) {
 			continue
@@ -139,19 +175,31 @@ func (a *App) ensureSpacePoolToppedUp(ctx context.Context, cfg AppConfig, sc Spa
 		if active+cooldown >= target {
 			continue
 		}
-		// 节流：最近 10min 内建过空间（无论状态）就跳过
-		if lastCreated, ok := lastSpaceCreatedAt(items); ok && time.Since(lastCreated) < rotateMinInterval {
+		// 同一账号创建成功后隔一会再来（真人节奏）
+		if lastCreated, ok := lastSpaceCreatedAt(items); ok && time.Since(lastCreated) < poolPrecreateSuccessGap {
 			continue
 		}
-		// 上 skę 预建失败 >= precreateFailCooldown 内热重试 = 账号 429 窗口会一直被重置
+		// 连续失败按退避冻结
 		if precreateRecentlyFailed(acc.Email) {
 			continue
 		}
-		log.Printf("[workspace_pool] account %s pool low: active=%d cooldown=%d target=%d -> precreate 1", acc.Email, active, cooldown, target)
-		if err := a.createPoolSpace(ctx, cfg, acc); err != nil {
-			log.Printf("[workspace_pool] precreate failed for %s: %v", acc.Email, err)
-			markPrecreateFailed(acc.Email)
-		}
+		candidates = append(candidates, acc)
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	if !poolAttemptGate() {
+		return
+	}
+	// 随机挑一个，避免请求总是打向列表前面的账号
+	acc := candidates[rand.Intn(len(candidates))]
+	items, _ := a.State.Store.LoadSpaceLifecycles(acc.Email, "")
+	active, cooldown := countPoolSpaces(items)
+	log.Printf("[workspace_pool] account %s pool low: active=%d cooldown=%d target=%d -> precreate 1", acc.Email, active, cooldown, target)
+	poolMarkAttempt()
+	if err := a.createPoolSpace(ctx, cfg, acc); err != nil {
+		log.Printf("[workspace_pool] precreate failed for %s: %v", acc.Email, err)
+		markPrecreateFailed(acc.Email)
 	}
 }
 
