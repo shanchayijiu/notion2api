@@ -698,12 +698,12 @@ func (s *ConversationStore) Complete(conversationID string, result InferenceResu
 	s.mu.Unlock()
 	if ok {
 		s.broadcast(ConversationEvent{
-		Type:           "conversation.completed",
-		ConversationID: conversationID,
-		At:             now,
-		Summary:        &summary,
-		Conversation:   entry,
-	})
+			Type:           "conversation.completed",
+			ConversationID: conversationID,
+			At:             now,
+			Summary:        &summary,
+			Conversation:   entry,
+		})
 	}
 }
 
@@ -745,13 +745,13 @@ func (s *ConversationStore) Fail(conversationID string, err error) {
 	s.mu.Unlock()
 	if ok {
 		s.broadcast(ConversationEvent{
-		Type:           "conversation.failed",
-		ConversationID: conversationID,
-		At:             now,
-		Error:          message,
-		Summary:        &summary,
-		Conversation:   entry,
-	})
+			Type:           "conversation.failed",
+			ConversationID: conversationID,
+			At:             now,
+			Error:          message,
+			Summary:        &summary,
+			Conversation:   entry,
+		})
 	}
 }
 

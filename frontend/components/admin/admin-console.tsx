@@ -110,7 +110,7 @@ export function AdminConsole() {
             defaultModel={defaultModel}
             defaultWebSearch={defaultWebSearch}
             onRun={async (payload) => {
-              const result = await services.testPrompt(payload);
+              const result = await services.runWireTest(payload);
               await loadConversations();
               return result;
             }}
@@ -152,7 +152,7 @@ export function AdminConsole() {
             onCreateSnapshot={services.createConfigSnapshot}
             onListSnapshot={services.listConfigSnapshots}
             onTestPrompt={async (payload) => {
-              const result = await services.testPrompt(payload);
+              const result = await services.runWireTest(payload);
               await loadConversations();
               return result;
             }}

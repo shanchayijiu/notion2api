@@ -252,10 +252,11 @@ func (r *WorkspaceRotator) DeleteSpace(ctx context.Context, cfg AppConfig, sessi
 
 // createSpaceHTTP — POST /api/v3/createspace
 // 2026-08-24 最终确认（Cloak UI 抓取真实请求 + 协议版 200 验证）：
-//   精确 body = name/icon("🏠")/planType/planSelection/initialPersona/deviceId/deviceType/source/createSpaceView
-//   deviceId 必须 = cookies 的 notion_browser_id
-//   createSpaceView:true → 服务端直接建 view（响应带 spaceViewPointer，无需手动绑定）
-//   429 = 号被非标准请求标记后的拒绝（标记后该号创建全挂；干净号+精确配方正常）
+//
+//	精确 body = name/icon("🏠")/planType/planSelection/initialPersona/deviceId/deviceType/source/createSpaceView
+//	deviceId 必须 = cookies 的 notion_browser_id
+//	createSpaceView:true → 服务端直接建 view（响应带 spaceViewPointer，无需手动绑定）
+//	429 = 号被非标准请求标记后的拒绝（标记后该号创建全挂；干净号+精确配方正常）
 func (r *WorkspaceRotator) createSpaceHTTP(ctx context.Context, client *NotionAIClient, deviceID string) (string, string, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		deviceID = randomUUID()
@@ -354,7 +355,6 @@ func accountDailyCooldownActive(cfg AppConfig, accountEmail string) (bool, time.
 	}
 	return false, time.Time{}
 }
-
 
 // isTransientCreate429：Notion 建空间的 429 有两种——频率限("recently submitted")与日额度用尽。
 // 频率限允许几分钟后重试，不该打账号 24h 冷却（2026-08-31 实测误伤新注册账号）。

@@ -449,6 +449,7 @@ export function SettingsPanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const promptStrategyFileInputRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState<SettingsFormState>(() => buildFormState(config));
+  const [savedForm, setSavedForm] = useState<SettingsFormState>(() => buildFormState(config));
   const [output, setOutput] = useState('等待操作...');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -459,9 +460,17 @@ export function SettingsPanel({
   const [strategyTestOutput, setStrategyTestOutput] = useState('等待策略测试...');
   const [strategyTesting, setStrategyTesting] = useState(false);
 
+  const formFingerprint = useMemo(() => JSON.stringify(form), [form]);
+  const savedFormFingerprint = useMemo(() => JSON.stringify(savedForm), [savedForm]);
+  const formDirty = formFingerprint !== savedFormFingerprint;
+
   useEffect(() => {
-    setForm(buildFormState(config));
-  }, [config]);
+    const nextForm = buildFormState(config);
+    if (!formDirty) {
+      setForm(nextForm);
+      setSavedForm(nextForm);
+    }
+  }, [config, formDirty]);
 
   useEffect(() => {
     setStrategyTestModel(config.default_model || config.model_id || models[0]?.id || 'auto');
@@ -751,17 +760,16 @@ export function SettingsPanel({
 
       if (form.apiKey.trim()) {
         next.api_key = form.apiKey.trim();
-      } else {
-        delete next.api_key;
       }
       if (form.adminPassword.trim()) {
         next.admin.password = form.adminPassword;
-      } else {
-        delete next.admin.password;
       }
 
       next.model_aliases = parsedModelAliases;
       const payload = await onSave(next as JsonResult);
+      const savedBaseline = buildFormState(next);
+      setForm(savedBaseline);
+      setSavedForm(savedBaseline);
       setOutput(JSON.stringify(payload, null, 2));
       setMessage('已保存并热更新');
       toast.success('设置已保存');
@@ -791,6 +799,9 @@ export function SettingsPanel({
             const parsed = JSON.parse(raw);
             const imported = (parsed?.config || parsed) as JsonResult;
             const payload = await onImport(imported);
+      const importedForm = buildFormState(imported as AppConfigShape);
+      setForm(importedForm);
+      setSavedForm(importedForm);
             setOutput(JSON.stringify(payload, null, 2));
             setMessage('配置已导入: ' + file.name);
             toast.success('配置导入成功');

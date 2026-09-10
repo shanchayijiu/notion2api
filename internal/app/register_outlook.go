@@ -187,7 +187,11 @@ func outlookWaitCode(ctx context.Context, pool *outlookPool, addr string, notBef
 				}
 				// 取全文（魔链变体密码在 href 里）
 				if full, ferr := pool.getJSON(ctx, fmt.Sprintf("/api/email/%s/%s", addrEsc, url.PathEscape(m.ID))); ferr == nil {
-					var msg struct{ Email struct{ Body string `json:"body"` } `json:"email"` }
+					var msg struct {
+						Email struct {
+							Body string `json:"body"`
+						} `json:"email"`
+					}
 					_ = json.Unmarshal(full, &msg)
 					hay := m.Subject + "\n" + stripHTML(msg.Email.Body) + "\n" + msg.Email.Body
 					if c := extractNotionCode(hay); c != "" {

@@ -17,7 +17,7 @@ import (
 )
 
 // registerRoots — 注册根（OutputRoot 下的 accounts/ logs/ mailboxes/）：优先 script_dir
-//（脚本目录即原 Python 注册根），未配置时退回登录助手会话目录的兄弟 register/。
+// （脚本目录即原 Python 注册根），未配置时退回登录助手会话目录的兄弟 register/。
 func resolveRegisterRoot(cfg AppConfig) string {
 	rc := cfg.ResolveRegister()
 	if dir := strings.TrimSpace(rc.ScriptDir); dir != "" {
@@ -48,10 +48,10 @@ func (a *App) RegisterNewAccount(parent context.Context, proxy string) (string, 
 	defer cancel()
 
 	res, err := registerOneGo(ctx, registerGoOptions{
-		Proxy:        proxy,
-		MailProvider: rc.MailProvider,
-		SpaceMode:    rc.SpaceMode,
-		OutputRoot:   root,
+		Proxy:           proxy,
+		MailProvider:    rc.MailProvider,
+		SpaceMode:       rc.SpaceMode,
+		OutputRoot:      root,
 		OutlookBaseURL:  strings.TrimSpace(rc.OutlookBaseURL),
 		OutlookPassword: strings.TrimSpace(rc.OutlookPassword),
 	})
@@ -132,6 +132,7 @@ func (a *App) startAccountReconcilerLoop(ctx context.Context) {
 		}
 	}
 }
+
 // reconcileAccountPoolLevel — 单次巡检：计算健康水位，低于 min_healthy 补 1 个
 // （慢节奏 + 单次 1 个：防注册机/上游被注册流量打爆）
 func (a *App) reconcileAccountPoolLevel(parent context.Context, rc RegisterConfig) {

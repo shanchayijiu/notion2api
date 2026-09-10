@@ -9,18 +9,18 @@ package app
 // 纯 HTTP（surf Chrome 指纹 + 标准 cookiejar），Docker 容器内原生可跑，无 python/playwright。
 
 import (
-	"math/rand"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,19 +42,19 @@ var reNotionDataVersion = regexp.MustCompile(`data-notion-version="([0-9._-]+)"`
 var reFivePartVersion = regexp.MustCompile(`^23\.[0-9]+\.[0-9]+\.(19|20)[0-9]{6}\.[0-9]+$`)
 
 const (
-	registerMaxEmailAttempts     = 5
-	registerBarrelSize           = 50
-	registerAllowSpaceless       = true
+	registerMaxEmailAttempts = 5
+	registerBarrelSize       = 50
+	registerAllowSpaceless   = true
 )
 
 // registerGoOptions — Go 注册链入参（由 register_provider 从配置汇总）
 type registerGoOptions struct {
-	Proxy        string
-	Password     string
-	MailProvider string // "mailtm"（默认）| "adguard"
-	SpaceMode      string // "invite"（默认，被邀优先）| "personal"
-	OutputRoot     string // register 根：accounts/ logs/ mailboxes/ 都在其下
-	OutlookBaseURL string // mail_provider=outlook：outlook-mail 容器基址
+	Proxy           string
+	Password        string
+	MailProvider    string // "mailtm"（默认）| "adguard"
+	SpaceMode       string // "invite"（默认，被邀优先）| "personal"
+	OutputRoot      string // register 根：accounts/ logs/ mailboxes/ 都在其下
+	OutlookBaseURL  string // mail_provider=outlook：outlook-mail 容器基址
 	OutlookPassword string // mail_provider=outlook：outlook-mail web 登录密码
 }
 
@@ -162,18 +162,18 @@ func registerHTTPPostJSON(ctx context.Context, hc *http.Client, url string, body
 // notionAPIHeaders — Notion v3 标准头（对齐 Python HEADERS_BASE）
 func notionAPIHeaders(clientVersion string) map[string]string {
 	return map[string]string{
-		"User-Agent":                 registerUA,
-		"Accept":                     "application/json, text/plain, */*",
-		"Accept-Language":            "en-US,en;q=0.9",
-		"Content-Type":               "application/json",
-		"sec-ch-ua":                  registerSecChUa,
-		"sec-ch-ua-mobile":           "?0",
-		"sec-ch-ua-platform":         `"Windows"`,
-		"sec-fetch-dest":             "empty",
-		"sec-fetch-mode":             "cors",
-		"sec-fetch-site":             "same-origin",
-		"notion-audit-log-platform":  "web",
-		"notion-client-version":      clientVersion,
+		"User-Agent":                registerUA,
+		"Accept":                    "application/json, text/plain, */*",
+		"Accept-Language":           "en-US,en;q=0.9",
+		"Content-Type":              "application/json",
+		"sec-ch-ua":                 registerSecChUa,
+		"sec-ch-ua-mobile":          "?0",
+		"sec-ch-ua-platform":        `"Windows"`,
+		"sec-fetch-dest":            "empty",
+		"sec-fetch-mode":            "cors",
+		"sec-fetch-site":            "same-origin",
+		"notion-audit-log-platform": "web",
+		"notion-client-version":     clientVersion,
 	}
 }
 
@@ -293,20 +293,20 @@ func registerOneGo(ctx context.Context, opts registerGoOptions) (registerGoResul
 	trace.log(map[string]any{"phase": "start", "proxy": opts.Proxy, "mail_provider": mailProvider, "space_mode": spaceMode})
 
 	var (
-		email       string
-		mailAcc     mailTmAccount
-		adgMB       adguardMailbox
-		grrMB       guerrillaMailbox
+		email        string
+		mailAcc      mailTmAccount
+		adgMB        adguardMailbox
+		grrMB        guerrillaMailbox
 		outlookPoolH *outlookPool
-		hc          *http.Client
-		loToken     string
-		csrfState   string
-		cv          = registerClientVersionDefault
-		country     string
-		accountDir  string
-		triedDirs      []string
-		badDomains     = map[string]bool{}
-		throttleHits   int
+		hc           *http.Client
+		loToken      string
+		csrfState    string
+		cv           = registerClientVersionDefault
+		country      string
+		accountDir   string
+		triedDirs    []string
+		badDomains   = map[string]bool{}
+		throttleHits int
 	)
 
 	for attempt := 0; attempt < registerMaxEmailAttempts; attempt++ {
@@ -795,15 +795,15 @@ gsiDone:
 		var err error
 		for retryI := 0; retryI < 3; retryI++ {
 			raw, st, err = notionPost(ctx, hc, "/createspace", map[string]any{
-			"name":           local + "'s Space",
-			"icon":           "🏠",
-			"planType":       "personal",
-			"planSelection":  "personal",
-			"initialPersona": "unfilled",
-			"deviceId":       deviceIDForSpace,
-			"deviceType":     "web-desktop",
-			"source":         "handle_root_redirect",
-			"createSpaceView": true,
+				"name":            local + "'s Space",
+				"icon":            "🏠",
+				"planType":        "personal",
+				"planSelection":   "personal",
+				"initialPersona":  "unfilled",
+				"deviceId":        deviceIDForSpace,
+				"deviceType":      "web-desktop",
+				"source":          "handle_root_redirect",
+				"createSpaceView": true,
 			}, cv, registerNotionAppHome+"/onboarding", nil)
 			// status=0 系网络层失败（连接被掐/超时），短暂重试
 			if err != nil || st == 0 {

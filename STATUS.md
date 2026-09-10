@@ -1,6 +1,8 @@
-# notion2api — 阶段文档（截至 2026-08-25）
+# notion2api — 阶段文档（截至 2026-09-10）
 
 > 主会话诚实记录：探测到哪、卡在哪、为什么卡、还差几步。
+> **2026-09-10 更新**：兼容性审计最小修复批次已落地到 `audit-fixes-20260908`：身份 mock 已删除；Chat/Responses typed+raw 请求保真、`tool_choice=none` 硬边界、UTF-8 分片、Responses 终态事件对账、Anthropic 连续文本 block 和真实 wire tester 已有实现与回归测试。新增 Responses SQLite 持久化重启恢复与 TTL HTTP 回放回归，专项与 Go 全量测试、构建、vet、前端 typecheck/build 已通过；发布 workflow 已加入 Node 构建与 `static/admin` 归档检查。尚未完成真实上游 HTTP 多轮 Responses、Messages 全矩阵、发布包启动冒烟和健康四态/六类预算收口。
+> **2026-09-08 更新**：桌面目录已从 `https://github.com/shanchayijiu/notion2api` 克隆，工作目录为 `C:\Users\Administrator\Desktop\notion2api`；原目录 `C:\Users\Administrator\notion2api` 未覆盖。当前分支 `audit-fixes-20260908`，未执行 commit、push、release。
 > **2026-08-25 更新**：**循环工作流目标达成**（opus5 规划→执行→review 循环 5 轮）——主流客户端工具调用可用：流式 tool_calls 增量分片（REQ-TOOL-04 全协议）+ tool_choice required/named + toolStreamSieve 半截标记缓冲（双闸+时间/片数闸+判据收紧）+ **官方 Python SDK 生态矩阵 3 项全过**（非流式/流式/多轮回填），全测试绿。借鉴 grok2api（白名单/流式 sieve）ds2api（schema 归一化）落地。
 > **2026-08-25 11:3x 稳定性修复**：**根因查明 = 主号 mt57jrhj0dn7@aitextextractor.com 被上游标记**（09:58 起 runInferenceTranscript 只建 thread 不推理：3 行无 agent-inference → temporarily-unavailable；后续 syncThread/syncThreadMessages 上游黑洞 → 服务请求挂死 150s+）。排查排除：代理 3067（并发/复用模拟全 1s 内）、连接复用（_probe_reuse_stream）、上游（probe 直连 400/200 正常）。**解法：admin API 导入注册机新号 mt80wafmshg9@imageeditgpt.com + activate 切换主号 + 停用旧号** → 默认请求 2.9s OK。**模型列表随号变化**：gpt-5.2 已下架 → 用 gpt-5.4（/v1/models 27 个）。pprof 已开（config debug.pprof_enabled=true, 127.0.0.1:6060，抓过 goroutine dump 定位 syncThreadMessages 等连接）。
 > **2026-08-25 循环工作流：账号自动检测+自动切换（CC/Codex harness 驱动，非脚本）**。用户要求「出问题自动切账号，而不是出问题再去检查」→ 实现：RunPrompt/RunPromptStream 在 `parseErr==nil && !HasAgentInference` 时直接返 `errAccountStarned`（跳过 loadFinalAnswerOnce/poll 长等待）；syncThread 8s / poll 20s 黑洞检测；markAccountDispatchFailure 设置 CooldownUntil（不再清空）+ accountDispatchEligible 检查冷却（accountCooldownActive）；dispatch 失败换候选 + errAccountStarved 显式非 retryable；**请求级 60s 总预算**（防 N×黑洞叠加）；**半开探测**（全员冷却时按冷却到期最早者放行一次，避免 30min 全线不可用）；成功即重置失败计数/冷却。loop：round1 用 `claude -p`（指向本服务）审查 → 列出 P0（仍挂死/漏切/误杀/全员冷却/超时过大）→ 全部修复 → round2 同一 harness 复审查 → **无剩余 P0，判生产可用**。测试全绿（含 account_cooldown_test.go 冷却/eligible/HasAgentInference 检测）。
@@ -10,16 +12,21 @@
 
 ## 0. 一句话现状
 
-Notion AI → OpenAI 兼容桥（GALIAIS Go 框架）。P0-P2 基本完成（轮换/附件/thinking/模型自愈/生产服务化/顺式策略）。
-**工具调用闭环已验证**：客户端绝对路径 → mask 成 `~/` 工作区路径 → 注入"工作区文档整理"顺式框架 → 模型输出 read_file 调用文本 → 解析 unmask 还原真实路径 → tool_calls 透传 → 客户端执行 → 结果回填 → 模型直接作答（不重复调用）。
-下一步：阶段 3 验收标准 v4 对齐（内容平面/终止路径/报告）或继续打磨工具桥稳定性。
+当前在 `audit-fixes-20260908` 分支收口兼容性审计的最小修复批次：Go 后端已完成身份 mock 删除、Chat/Responses 请求保真、`tool_choice=none` 硬边界、UTF-8 分片、Responses 流终态对账、Anthropic 连续文本 block；管理台 tester 已切到真实 `/v1/chat/completions`，前端静态包已重新构建。Go 全量测试、二进制构建、前端 typecheck/build 已通过。剩余是上游依赖的真实 Responses 多轮/Messages HTTP 矩阵、发布包启动冒烟、healthz 四态和 dispatch 六类预算，不把未跑过的项目标成完成。
 
 真跑命令：
 ```
-cd C:\Users\Administrator\notion2api
-taskkill /F /IM notion2api.exe; python research\_start_srv.py   # 重启服务（stderr.log 接管日志）
-python research\_probe_tool.py   # 工具闭环冒烟（读文件→调用→回填→回答）
+cd C:\Users\Administrator\Desktop\notion2api
+gofmt -w internal/app/*.go
+go test ./... -count=1
+go build ./cmd/notion2api
+cd frontend
+npm ci
+npm run typecheck
+npm run build:static
 ```
+
+发布约束：不覆盖 `C:\Users\Administrator\notion2api`；未执行 commit、push、release。
 
 ---
 
@@ -39,11 +46,6 @@ python research\_probe_tool.py   # 工具闭环冒烟（读文件→调用→回
 **达成判据**：`_runtime/v4_consistency_report.json` verdict != invalid 且无 fail；8 mutant 全部被杀死；REQ-TOOL-04 已有实现维持绿；opus5 review 无阻塞项。**循环模式**：执行一批 → opus5 review → 立即修 → 端到端回归 → 有阻塞项进下一轮（CORE_PRINCIPLES §5）。
 **2026-08-25 达成（round 1-4）**：v4 报告 19 pass / 3 unknown（INV-02/09/12 为 E3 级，P2 范围，已带 unknownConverge 收敛判据）/ 0 fail，verdict=insufficient-evidence；T-16 反向门禁 11/11 mutant 全杀（scripts/mutant_gate.ps1 + mutant→不变量矩阵）；红灯先行证据固化 `_runtime/v4_evidence/red_first_fixtures.txt`；新增 stop 序列支持（S4 缓冲模式）。**INV-06 fuzz 抓到并修复 6 个真实泄漏 bug**（见 §2 卡点 A3）。**opus5 review round 4 终判：无条件通过，无 P0/P1 阻塞项 → 目标 #2 达成**。下一步：E3 金丝雀 T-09（review 建议优先于卡点 A），启动清单见 §3。
 
-**明确不做**：
-- 不做 Assistants/Realtime/Batch 端点（v4 非目标）
-- 不做 Anthropic 原生格式全面兼容（maxapi 范畴）
-- 不破解 Claude/opus 系 thinking 加密（上游行为，gpt 系明文已够用）
-- 不承诺 token 计费精度达官方级
 
 **手段 vs 目的**：
 - 目的 = 让客户端把 Notion 当正经 API 用（含工具调用）
@@ -60,11 +62,15 @@ python research\_probe_tool.py   # 工具闭环冒烟（读文件→调用→回
 > **保护区。** 换会话/修局部/加前端时默认不许动这里列的链路与文件。
 
 ### 1.1 整条链路
-- P0 AI 桥主路径 ✅（smoke 全过）
-- P1 轮换引擎 ✅（createSpace 9 字段 + 免绑定 + 自动轮换）
-- P2 生产化 ✅（计划任务服务化/持久化/健康检查）
-- 顺式策略 ✅（prompt_guard 全前缀改顺式；身份探针 mock）
-- **工具调用闭环 ✅（2026-08-25 最新）**：mask→注入→输出→解析→unmask→tool_calls→回填→回答
+- 既有账号、上游、注册与空间池主路径：本批次未重构，需按原有脚本再做一次主路径回归。
+- 身份 mock：**已删除**；普通问候不再被网关固定回复。
+- Chat/Responses typed+raw decode：已补 raw payload 保真，未知字段、`tool_choice`、Responses `previous_response_id`/`instructions` 不因 typed 结构体丢失。
+- `tool_choice=none`：Chat、Responses、Messages 的注入、提取、合成、schema 归一化、路径 mask/unmask、工具结果回灌和最终工具调用均有边界测试。
+- 工具桥、账号池、上游链路属于保护区；本批次只改协议接缝和回归测试。
+- **Responses stream**：事件包含 sequence/response/output/call 关联字段，completed output 与 terminal item 有回归对账。
+- **Anthropic Messages stream**：连续文本共用一个 text block，已有 converter 回归测试。
+- **管理台 tester**：已改走真实 `/v1/chat/completions`，解析 SSE text/reasoning/tool_calls/usage，支持实时事件和 AbortController 取消。
+- **前端发布**：`frontend/out` 已同步到 `static/admin`；CI 已加入 Node 构建和归档内 `static/admin/index.html` 检查。
 
 ### 1.2 已解决的硬阻断
 - 工具桥注入丢失：freshThread 重放用 latestPrompt 重建 prompt 覆盖注入 → 移到组装末端（userStep value，`maskIfEnabled`）✓

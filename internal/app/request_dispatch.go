@@ -16,9 +16,8 @@ import (
 const (
 	defaultStreamingRequestTimeoutSec  = 900
 	dispatchProtocolProbeTimeoutCapSec = 20
-	// 账号轮换总预算：无论候选数多少，整个 dispatch 循环不得超过此时长，
-	// 避免多账号各自黑洞（~28s）叠加成 N×28s 的长时间挂死。
-	accountDispatchTotalBudgetSec = 60
+	// 候选选择/健康探测是 dispatch 阶段预算；正常推理使用 requestTimeout/streamRequestTimeout，
+	// 不再用固定 60 秒截断长推理。
 )
 
 var errDispatchCapacityExceeded = errors.New("dispatch capacity exceeded")
@@ -236,7 +235,14 @@ func shouldPersistDispatchedAccountAsActive(cfg AppConfig, request PromptRunRequ
 }
 
 func dispatchProtocolProbeTimeout(cfg AppConfig) time.Duration {
-	seconds := maxInt(minInt(cfg.TimeoutSec, dispatchProtocolProbeTimeoutCapSec), 5)
+	seconds := cfg.Dispatch.ProtocolProbeTimeoutSeconds
+	if seconds <= 0 {
+		seconds = dispatchProtocolProbeTimeoutCapSec
+	}
+	seconds = minInt(seconds, dispatchProtocolProbeTimeoutCapSec)
+	if seconds < 5 {
+		seconds = 5
+	}
 	return time.Duration(seconds) * time.Second
 }
 
@@ -315,8 +321,9 @@ func (a *App) probeAccountProtocolHealth(ctx context.Context, cfg AppConfig, ses
 			return nil
 		}
 		if isDispatchContextAbort(ctx, err) {
-			a.markAccountProtocolProbeSuccess(accountKey, now)
-			return nil
+			// Cancellation/deadline is inconclusive health evidence. Leave the
+			// probe state unknown so a later request can retry it.
+			return err
 		}
 		a.markAccountProtocolProbeFailure(accountKey)
 		return err
@@ -326,8 +333,9 @@ func (a *App) probeAccountProtocolHealth(ctx context.Context, cfg AppConfig, ses
 	client := newNotionAIClient(session, cfg, "")
 	_, err := client.listInferenceTranscripts(probeCtx)
 	if isDispatchContextAbort(probeCtx, err) {
-		a.markAccountProtocolProbeSuccess(accountKey, now)
-		return nil
+		// A timeout/cancelled probe is inconclusive, not a verified healthy
+		// result. Do not populate the positive probe cache.
+		return err
 	}
 	if err != nil {
 		a.markAccountProtocolProbeFailure(accountKey)
@@ -486,10 +494,6 @@ func (a *App) runPromptWithAccountPool(r *http.Request, request PromptRunRequest
 	timeout := requestTimeout(cfg)
 	if onDelta != nil {
 		timeout = streamRequestTimeout(cfg)
-	}
-	// 账号轮换总预算：整个候选循环上限，避免坏账号黑洞叠加成长时间挂死
-	if timeout > time.Duration(accountDispatchTotalBudgetSec)*time.Second {
-		timeout = time.Duration(accountDispatchTotalBudgetSec) * time.Second
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
@@ -708,10 +712,6 @@ func (a *App) runPromptWithAccountPoolWithSink(r *http.Request, request PromptRu
 	}
 
 	timeout := streamRequestTimeout(cfg)
-	// 账号轮换总预算：整个候选循环上限，避免坏账号黑洞叠加成长时间挂死
-	if timeout > time.Duration(accountDispatchTotalBudgetSec)*time.Second {
-		timeout = time.Duration(accountDispatchTotalBudgetSec) * time.Second
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 

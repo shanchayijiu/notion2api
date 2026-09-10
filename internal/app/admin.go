@@ -663,6 +663,22 @@ func (a *App) handleAdminVersion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *App) handleAdminTestKey(w http.ResponseWriter, r *http.Request) {
+	if !a.adminAuthOK(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+		return
+	}
+	cfg, _, _ := a.State.Snapshot()
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"detail": "server api key is not configured"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"api_key": cfg.APIKey})
+}
+
 func (a *App) handleAdminTest(w http.ResponseWriter, r *http.Request) {
 	if !a.adminAuthOK(w, r) {
 		return
@@ -801,6 +817,8 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		a.handleAdminVersion(w, r)
 	case r.URL.Path == "/admin/test":
 		a.handleAdminTest(w, r)
+	case r.URL.Path == "/admin/test/key":
+		a.handleAdminTestKey(w, r)
 	case r.URL.Path == "/admin/events":
 		a.handleAdminEvents(w, r)
 	case r.URL.Path == "/admin/conversations":

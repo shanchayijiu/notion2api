@@ -6,22 +6,49 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
+// decodeAnthropicMessageRequestBodyFromRaw retains the raw map so adapter-specific
+// fields are not discarded even though execution currently uses the typed view.
+func decodeAnthropicMessageRequestBodyFromRaw(raw []byte) (anthropicMessageRequest, map[string]any, error) {
+	typed, err := decodeTypedBodyFromRaw[anthropicMessageRequest](raw)
+	if err != nil {
+		return anthropicMessageRequest{}, nil, err
+	}
+	payload, err := decodeBodyMapFromRaw(raw)
+	if err != nil {
+		return anthropicMessageRequest{}, nil, err
+	}
+	typed.rawPayload = payload
+	return typed, payload, nil
+}
+
 // handleMessages — POST /v1/messages
 func (a *App) handleMessages(w http.ResponseWriter, r *http.Request) {
-	var req anthropicMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "invalid json: "+err.Error())
+	raw, err := a.decodeBodyRaw(w, r)
+	if err != nil {
+		if errors.Is(err, errRequestTooLarge) {
+			writeAnthropicError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request body exceeds configured limit")
+		} else {
+			writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
 		return
 	}
+	req, payload, err := decodeAnthropicMessageRequestBodyFromRaw(raw)
+	if err != nil {
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	_ = payload // retained for adapter-level compatibility and unknown-field tests
 	if strings.TrimSpace(req.Model) == "" {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
@@ -30,22 +57,51 @@ func (a *App) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "messages must be a non-empty array")
 		return
 	}
+	if req.MaxTokens == nil {
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "max_tokens is required")
+		return
+	}
 	// 转换请求到内部 OpenAI 形态（C3：屏蔽子代理类工具，CC 本地直接执行常规工具）
+	toolChoice, _, err := anthropicToolChoiceToOpenAI(req.ToolChoice)
+	if err != nil {
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	disableParallelToolUse := req.DisableParallelToolUse || anthropicNestedDisableParallelToolUse(req.ToolChoice)
+	toolsAllowed := !toolChoiceNone(toolChoice)
 	internalTools := filterSubagentTools(anthropicToolsToOpenAI(req.Tools))
+	if !toolsAllowed {
+		internalTools = nil
+	}
 	internalMessages := parseAnthropicMessages(req.Messages)
+	if system := parseAnthropicSystem(req.System); system != "" {
+		// The internal Chat seam only has a messages transcript. Keep system exactly
+		// once here; do not also place it in an ignored top-level Chat field.
+		internalMessages = append([]map[string]any{{"role": "system", "content": system}}, internalMessages...)
+	}
 	if len(internalMessages) == 0 {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", "messages must contain text content")
 		return
 	}
 	internalBody := map[string]any{
-		"model":    req.Model,
-		"messages": internalMessages,
-		"stream":   req.Stream,
+		"model":      req.Model,
+		"messages":   internalMessages,
+		"stream":     req.Stream,
+		"max_tokens": *req.MaxTokens,
+	}
+	if req.Temperature != nil {
+		internalBody["temperature"] = *req.Temperature
+	}
+	if req.Metadata != nil {
+		internalBody["metadata"] = req.Metadata
+	}
+	if disableParallelToolUse {
+		internalBody["disable_parallel_tool_use"] = true
 	}
 	if len(internalTools) > 0 {
 		internalBody["tools"] = internalTools
-		if tc, _ := anthropicToolChoiceToOpenAI(req.ToolChoice); tc != "" && tc != "auto" {
-			internalBody["tool_choice"] = tc
+		if toolChoice != "" && toolChoice != "auto" {
+			internalBody["tool_choice"] = toolChoice
 		}
 	}
 	if len(req.StopSequences) > 0 {
@@ -96,6 +152,11 @@ func (a *App) handleMessagesStream(w http.ResponseWriter, r *http.Request, inter
 		writeAnthropicError(w, http.StatusInternalServerError, "api_error", "streaming not supported")
 		return
 	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
 	pr, pw := io.Pipe()
 	done := make(chan struct{})
 	lw := &liveSSEWriter{pw: pw, header: http.Header{}}
@@ -136,31 +197,43 @@ func (a *App) handleMessagesStream(w http.ResponseWriter, r *http.Request, inter
 type liveSSEWriter struct {
 	pw     *io.PipeWriter
 	header http.Header
+	mu     sync.RWMutex
 	status int
 }
 
 func (lw *liveSSEWriter) Header() http.Header { return lw.header }
 func (lw *liveSSEWriter) Write(b []byte) (int, error) {
+	lw.mu.Lock()
 	if lw.status == 0 {
 		lw.status = http.StatusOK
 	}
+	lw.mu.Unlock()
 	return lw.pw.Write(b)
 }
-func (lw *liveSSEWriter) WriteHeader(code int) { lw.status = code }
-func (lw *liveSSEWriter) Flush()               {}
+func (lw *liveSSEWriter) WriteHeader(code int) {
+	lw.mu.Lock()
+	lw.status = code
+	lw.mu.Unlock()
+}
+func (lw *liveSSEWriter) Status() int {
+	lw.mu.RLock()
+	defer lw.mu.RUnlock()
+	return lw.status
+}
+func (lw *liveSSEWriter) Flush() {}
 
 // anthropicFromOpenAICompletion — OpenAI 非流式响应 → Anthropic 消息
 func anthropicFromOpenAICompletion(oai map[string]any) anthropicMessageResponse {
 	model := stringValue(oai["model"])
 	id := "msg_" + strings.ReplaceAll(randomUUID(), "-", "")
 	resp := anthropicMessageResponse{
-		ID:   id,
-		Type: "message",
-		Role: "assistant",
-		Model: model,
-		Content: []anthropicContentBlock{},
+		ID:         id,
+		Type:       "message",
+		Role:       "assistant",
+		Model:      model,
+		Content:    []anthropicContentBlock{},
 		StopReason: "end_turn",
-		Usage: anthropicUsage{},
+		Usage:      anthropicUsage{},
 	}
 	choices, _ := oai["choices"].([]any)
 	if len(choices) == 0 {
@@ -168,7 +241,7 @@ func anthropicFromOpenAICompletion(oai map[string]any) anthropicMessageResponse 
 	}
 	choice, _ := choices[0].(map[string]any)
 	message, _ := choice["message"].(map[string]any)
-	content := strings.TrimSpace(stringValue(message["content"]))
+	content := stringValue(message["content"])
 	if content != "" {
 		resp.Content = append(resp.Content, anthropicContentBlock{Type: "text", Text: content})
 	}
@@ -225,28 +298,26 @@ func intValue(v any) int {
 // writeAnthropicError — 标准 Anthropic 错误结构
 func writeAnthropicError(w http.ResponseWriter, status int, errType string, message string) {
 	writeJSON(w, status, map[string]any{
-		"type": "error",
+		"type":  "error",
 		"error": map[string]any{"type": errType, "message": message},
 	})
 }
 
 func writeAnthropicErrorFromOpenAI(w http.ResponseWriter, status int, payload map[string]any) {
-	msg := stringValue(payload["message"])
+	errPayload := mapValue(payload["error"])
+	if errPayload == nil {
+		errPayload = payload
+	}
+	msg := stringValue(errPayload["message"])
 	if strings.TrimSpace(msg) == "" {
 		msg = "request failed"
 	}
-	errType := "api_error"
-	switch status {
-	case http.StatusBadRequest:
-		errType = "invalid_request_error"
-	case http.StatusUnauthorized:
-		errType = "authentication_error"
-	case http.StatusForbidden:
-		errType = "permission_error"
-	case http.StatusNotFound:
-		errType = "not_found_error"
-	case http.StatusTooManyRequests:
-		errType = "rate_limit_error"
+	errType := strings.TrimSpace(stringValue(errPayload["type"]))
+	if errType == "" {
+		errType = "api_error"
+	}
+	if code := strings.TrimSpace(stringValue(errPayload["code"])); code != "" {
+		errType = firstNonEmpty(errType, code)
 	}
 	writeAnthropicError(w, status, errType, msg)
 }

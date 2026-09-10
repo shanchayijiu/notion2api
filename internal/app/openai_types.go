@@ -20,6 +20,7 @@ type chatCompletionsRequestBody struct {
 	UseWebSearch       *bool    `json:"use_web_search,omitempty"`
 	Metadata           any      `json:"metadata,omitempty"`
 	Tools              any      `json:"tools,omitempty"`
+	ToolChoice         any      `json:"tool_choice,omitempty"`
 	StreamOptions      any      `json:"stream_options,omitempty"`
 	Messages           any      `json:"messages,omitempty"`
 	Attachments        any      `json:"attachments,omitempty"`
@@ -46,6 +47,8 @@ type responsesRequestBody struct {
 	UseWebSearch       *bool  `json:"use_web_search,omitempty"`
 	Metadata           any    `json:"metadata,omitempty"`
 	Tools              any    `json:"tools,omitempty"`
+	ToolChoice         any    `json:"tool_choice,omitempty"`
+	Instructions       any    `json:"instructions,omitempty"`
 	Input              any    `json:"input,omitempty"`
 	Attachments        any    `json:"attachments,omitempty"`
 }
@@ -139,6 +142,7 @@ func extractChatCompletionsRequestBody(payload map[string]any) chatCompletionsRe
 	}
 	body.Metadata = payload["metadata"]
 	body.Tools = payload["tools"]
+	body.ToolChoice = payload["tool_choice"]
 	body.StreamOptions = payload["stream_options"]
 	body.Messages = payload["messages"]
 	body.Attachments = payload["attachments"]
@@ -171,6 +175,8 @@ func extractResponsesRequestBody(payload map[string]any) responsesRequestBody {
 	}
 	body.Metadata = payload["metadata"]
 	body.Tools = payload["tools"]
+	body.ToolChoice = payload["tool_choice"]
+	body.Instructions = payload["instructions"]
 	body.Input = payload["input"]
 	body.Attachments = payload["attachments"]
 	return normalizeTypedResponsesRequestBody(body)

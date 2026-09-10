@@ -213,6 +213,43 @@ func TestNDJSONSilenceWatchdog_HealthyStream_NotFired(t *testing.T) {
 	}
 }
 
+func TestAnthropicConverter_ContinuousTextUsesOneBlock(t *testing.T) {
+	pr, pw := io.Pipe()
+	rec := &sseRecorder{}
+	converter := newAnthropicEventConverter(rec, rec, "msg_text", "opus-5")
+	go func() {
+		chunks := []string{
+			`data: {"choices":[{"delta":{"role":"assistant"}}]}` + "\n",
+			`data: {"choices":[{"delta":{"content":"你"}}]}` + "\n",
+			`data: {"choices":[{"delta":{"content":"好"}}]}` + "\n",
+			`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n",
+			"data: [DONE]\n",
+		}
+		for _, chunk := range chunks {
+			if _, err := pw.Write([]byte(chunk)); err != nil {
+				return
+			}
+		}
+		_ = pw.Close()
+	}()
+	if err := converter.run(pr); err != nil {
+		t.Fatalf("continuous text stream failed: %v", err)
+	}
+	out := rec.buf.String()
+	if got := strings.Count(out, "event: content_block_start\n"); got != 1 {
+		t.Fatalf("continuous text must open one block, got %d:\n%s", got, out)
+	}
+	if got := strings.Count(out, "event: content_block_delta\n"); got != 2 {
+		t.Fatalf("continuous text must emit two deltas, got %d:\n%s", got, out)
+	}
+	if got := strings.Count(out, "event: content_block_stop\n"); got != 1 {
+		t.Fatalf("continuous text must stop one block, got %d:\n%s", got, out)
+	}
+	if !strings.Contains(out, `"index":0`) || !strings.Contains(out, `"text":"你"`) || !strings.Contains(out, `"text":"好"`) {
+		t.Fatalf("text deltas lost content or index: %s", out)
+	}
+}
+
 // ── P1-1:anthropic 流式上游错误不再吞成空成功 ────────────────────────
 
 type sseRecorder struct {

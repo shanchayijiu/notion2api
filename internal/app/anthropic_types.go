@@ -6,6 +6,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -16,31 +17,32 @@ type anthropicMessageRequest struct {
 	System                 any                `json:"system,omitempty"`
 	Tools                  []anthropicTool    `json:"tools,omitempty"`
 	ToolChoice             any                `json:"tool_choice,omitempty"`
-	MaxTokens              int                `json:"max_tokens,omitempty"`
+	MaxTokens              *int               `json:"max_tokens,omitempty"`
 	Temperature            *float64           `json:"temperature,omitempty"`
 	StopSequences          []string           `json:"stop_sequences,omitempty"`
 	Stream                 bool               `json:"stream,omitempty"`
 	Metadata               map[string]any     `json:"metadata,omitempty"`
 	DisableParallelToolUse bool               `json:"disable_parallel_tool_use,omitempty"`
 	UseWebSearch           *bool              `json:"use_web_search,omitempty"`
+	rawPayload             map[string]any     `json:"-"`
 }
 
 type anthropicMessage struct {
-	Role    string  `json:"role"`
-	Content any     `json:"content"` // string 或 []anthropicContentBlock
-	Name    string  `json:"name,omitempty"`
+	Role    string `json:"role"`
+	Content any    `json:"content"` // string 或 []anthropicContentBlock
+	Name    string `json:"name,omitempty"`
 }
 
 type anthropicContentBlock struct {
-	Type         string            `json:"type"` // text / image / tool_use / tool_result
-	Text         string            `json:"text,omitempty"`
-	Source       map[string]any    `json:"source,omitempty"`
-	ID           string            `json:"id,omitempty"`
-	Name         string            `json:"name,omitempty"`
-	Input        any               `json:"input,omitempty"`
-	ToolUseID    string            `json:"tool_use_id,omitempty"`
-	Content      any               `json:"content,omitempty"`
-	IsError      bool              `json:"is_error,omitempty"`
+	Type      string         `json:"type"` // text / image / tool_use / tool_result
+	Text      string         `json:"text,omitempty"`
+	Source    map[string]any `json:"source,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     any            `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   any            `json:"content,omitempty"`
+	IsError   bool           `json:"is_error,omitempty"`
 }
 
 type anthropicTool struct {
@@ -51,14 +53,14 @@ type anthropicTool struct {
 
 // anthropicMessageResponse — 非流式响应
 type anthropicMessageResponse struct {
-	ID           string                    `json:"id"`
-	Type         string                    `json:"type"`
-	Role         string                    `json:"role"`
-	Model        string                    `json:"model"`
-	Content      []anthropicContentBlock   `json:"content"`
-	StopReason   string                    `json:"stop_reason"`
-	StopSequence *string                   `json:"stop_sequence"`
-	Usage        anthropicUsage            `json:"usage"`
+	ID           string                  `json:"id"`
+	Type         string                  `json:"type"`
+	Role         string                  `json:"role"`
+	Model        string                  `json:"model"`
+	Content      []anthropicContentBlock `json:"content"`
+	StopReason   string                  `json:"stop_reason"`
+	StopSequence *string                 `json:"stop_sequence"`
+	Usage        anthropicUsage          `json:"usage"`
 }
 
 type anthropicUsage struct {
@@ -88,24 +90,54 @@ func parseAnthropicSystem(raw any) string {
 }
 
 // anthropicToolChoiceToOpenAI — tool_choice 映射：
-// auto→auto；any→required；{type:tool,name}→指定；none/stop→none
-func anthropicToolChoiceToOpenAI(raw any) (string, bool) {
+// auto→auto；any→required；{type:tool,name}→指定；none/stop→none。
+// Anthropic 的 tool_choice 是受限 union；未知形状不能静默回退为 auto。
+func anthropicToolChoiceToOpenAI(raw any) (string, bool, error) {
+	if raw == nil {
+		return "auto", false, nil
+	}
 	switch v := raw.(type) {
 	case string:
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "any":
-			return "required", true
+			return "required", true, nil
 		case "auto":
-			return "auto", true
+			return "auto", true, nil
 		case "none", "stop":
-			return "none", true
+			return "none", true, nil
+		default:
+			return "", false, fmt.Errorf("unsupported tool_choice %q", v)
 		}
 	case map[string]any:
-		if strings.TrimSpace(stringValue(v["type"])) == "tool" {
-			return strings.TrimSpace(stringValue(v["name"])), true
+		typeName := strings.ToLower(strings.TrimSpace(stringValue(v["type"])))
+		switch typeName {
+		case "tool":
+			name := strings.TrimSpace(stringValue(v["name"]))
+			if name == "" {
+				return "", false, fmt.Errorf("tool_choice.type=tool requires name")
+			}
+			return name, true, nil
+		case "none", "stop":
+			return "none", true, nil
+		case "any":
+			return "required", true, nil
+		case "auto":
+			return "auto", true, nil
+		default:
+			return "", false, fmt.Errorf("unsupported tool_choice type %q", typeName)
 		}
+	default:
+		return "", false, fmt.Errorf("tool_choice must be a string or object")
 	}
-	return "auto", true
+}
+
+func anthropicNestedDisableParallelToolUse(raw any) bool {
+	choice, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	value, _ := choice["disable_parallel_tool_use"].(bool)
+	return value
 }
 
 // anthropicToolsToOpenAI — tools 转换：input_schema → parameters
@@ -245,14 +277,15 @@ func jsonString(v any) string {
 }
 
 var _ = anthropicMessageResponse{}
+
 // filterSubagentTools — 屏蔽 CC 子代理类工具（2026-08-26 C3，opus 决策）：
 // Agent/SendMessage/AddTaskNotificationTool 会让 CC 创建异步子代理（耗配额、链路长、易断），
 // 屏蔽后模型只能输出 Write/Bash/Read 等常规工具调用 → CC 本地直接执行。
 var subagentToolNames = map[string]bool{
-	"Agent":                  true,
-	"SendMessage":            true,
+	"Agent":                   true,
+	"SendMessage":             true,
 	"AddTaskNotificationTool": true,
-	"AddTaskOutput":          true,
+	"AddTaskOutput":           true,
 }
 
 func filterSubagentTools(tools []map[string]any) []map[string]any {

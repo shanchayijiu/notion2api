@@ -14,10 +14,10 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"syscall"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -1143,17 +1143,17 @@ func (a *App) serveHealthz(w http.ResponseWriter) {
 	identity := resolveBuildIdentity()
 	poolHealthy, poolTotal := countHealthyAccounts(cfg)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                      true,
-		"default_model":           cfg.DefaultPublicModel(),
-		"model_count":             len(registry.Entries),
-		"user_email":              session.UserEmail,
-		"space_id":                session.SpaceID,
-		"active_account":          cfg.ActiveAccount,
-		"session_ready":           sessionReady,
-		"pool_healthy":            poolHealthy,
-		"pool_total":              poolTotal,
-		"pool_ready":              poolHealthy > 0, // P2:分级健康——session_ready(进程能跑)≠ pool_ready(有健康号池能应答)
-		"session_refresh_enabled": cfg.ResolveSessionRefresh().Enabled,
+		"ok":                         true,
+		"default_model":              cfg.DefaultPublicModel(),
+		"model_count":                len(registry.Entries),
+		"user_email":                 session.UserEmail,
+		"space_id":                   session.SpaceID,
+		"active_account":             cfg.ActiveAccount,
+		"session_ready":              sessionReady,
+		"pool_healthy":               poolHealthy,
+		"pool_total":                 poolTotal,
+		"pool_ready":                 poolHealthy > 0, // P2:分级健康——session_ready(进程能跑)≠ pool_ready(有健康号池能应答)
+		"session_refresh_enabled":    cfg.ResolveSessionRefresh().Enabled,
 		"last_session_refresh":       formatTimeOrEmpty(lastRefresh),
 		"last_session_refresh_error": lastRefreshError,
 		"commit":                     identity.CommitSHA,
@@ -1631,7 +1631,11 @@ func includeUsageInStream(payload map[string]any) bool {
 func decodeChatCompletionsRequestBodyFromRaw(raw []byte) (chatCompletionsRequestBody, map[string]any, error) {
 	typed, err := decodeTypedBodyFromRaw[chatCompletionsRequestBody](raw)
 	if err == nil {
-		return normalizeTypedChatCompletionsRequestBody(typed), nil, nil
+		payload, mapErr := decodeBodyMapFromRaw(raw)
+		if mapErr != nil {
+			return chatCompletionsRequestBody{}, nil, mapErr
+		}
+		return normalizeTypedChatCompletionsRequestBody(typed), payload, nil
 	}
 	payload, mapErr := decodeBodyMapFromRaw(raw)
 	if mapErr != nil {
@@ -1643,7 +1647,11 @@ func decodeChatCompletionsRequestBodyFromRaw(raw []byte) (chatCompletionsRequest
 func decodeResponsesRequestBodyFromRaw(raw []byte) (responsesRequestBody, map[string]any, error) {
 	typed, err := decodeTypedBodyFromRaw[responsesRequestBody](raw)
 	if err == nil {
-		return normalizeTypedResponsesRequestBody(typed), nil, nil
+		payload, mapErr := decodeBodyMapFromRaw(raw)
+		if mapErr != nil {
+			return responsesRequestBody{}, nil, mapErr
+		}
+		return normalizeTypedResponsesRequestBody(typed), payload, nil
 	}
 	payload, mapErr := decodeBodyMapFromRaw(raw)
 	if mapErr != nil {
@@ -1732,21 +1740,6 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "messages must be an array", "invalid_request_error", nilString())
 		return
 	}
-	// 身份探针（cursor2api 策略）：问身份直接 mock 回复，不触发上游
-	if reply, hit := CheckIdentityProbe(messages); hit {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id": "chatcmpl-" + strings.ReplaceAll(randomUUID(), "-", ""),
-			"object": "chat.completion",
-			"created": time.Now().Unix(),
-			"model": requestedModelFromTyped(typed.Model, "auto"),
-			"choices": []map[string]any{{
-				"index": 0,
-				"message": map[string]any{"role": "assistant", "content": reply},
-				"finish_reason": "stop",
-			}},
-		})
-		return
-	}
 	if verr := validateRequestAttachments(typed.Attachments); verr != nil {
 		writeOpenAIError(w, http.StatusBadRequest, verr.Error(), "invalid_request_error", nilString())
 		return
@@ -1777,19 +1770,22 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	originalFingerprint := canonicalConversationFingerprint(hiddenPrompt, normalized.Segments)
 	originalRawMessageCount := sessionRawMessageCount(normalized.Segments)
 	request := PromptRunRequest{
-		Prompt:             promptText,
-		LatestUserPrompt:   latestPrompt,
-		HiddenPrompt:       hiddenPrompt,
-		PublicModel:        entry.ID,
-		NotionModel:        entry.NotionModel,
-		UseWebSearch:       useWebSearch,
-		Attachments:        normalized.Attachments,
-		SessionFingerprint: originalFingerprint,
-		RawMessageCount:    originalRawMessageCount,
-		StopSequences:      parseStopSequences(typed.Stop),
+		Prompt:                 promptText,
+		LatestUserPrompt:       latestPrompt,
+		HiddenPrompt:           hiddenPrompt,
+		PublicModel:            entry.ID,
+		NotionModel:            entry.NotionModel,
+		UseWebSearch:           useWebSearch,
+		Attachments:            normalized.Attachments,
+		SessionFingerprint:     originalFingerprint,
+		RawMessageCount:        originalRawMessageCount,
+		StopSequences:          parseStopSequences(typed.Stop),
+		AllowTextToolSynthesis: cfg.Features.AllowTextToolSynthesis,
+		ClientWorkingDirectory: extractWorkingDirectory(messages),
 	}
 	freshThreadMode := forceFreshThreadPerRequest(cfg)
-	hasTools := len(sliceValue(typed.Tools)) > 0 && !toolChoiceNone(payload["tool_choice"])
+	hasTools := toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
+	request.AllowTextToolSynthesis = cfg.Features.AllowTextToolSynthesis && hasTools
 	conversation := ConversationEntry{}
 	// 带 tools 的请求不走跨会话续聊：工具循环客户端自带完整上下文（assistant tool_calls + tool 结果），
 	// 同内容重复请求若匹配历史会复用旧答案（模型看到历史已答 → 不输出工具调用）。
@@ -1815,9 +1811,12 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 工具桥：本地绝对路径 → 工作区路径（Notion 模型拒绝"本地电脑路径"，接受 ~/）
 	request.MaskLocalPaths = hasTools
 	request.ToolsRaw = parseToolList(typed.Tools)
+	if !hasTools {
+		request.ToolsRaw = nil
+	}
 	// 工具桥注入（c2a few-shot：user 指令 + assistant 输出示例，组装末端追加）
-	if len(sliceValue(typed.Tools)) > 0 {
-		userSec, asstSec := buildToolBridgePrompt(parseToolList(typed.Tools), stringValue(typed.Model), toolChoiceForced(payload["tool_choice"]), forcedToolName(payload["tool_choice"]), extractWorkingDirectory(messages))
+	if hasTools {
+		userSec, asstSec := buildToolBridgePrompt(parseToolList(typed.Tools), stringValue(typed.Model), toolChoiceForced(typed.ToolChoice), forcedToolName(typed.ToolChoice), extractWorkingDirectory(messages))
 		request.ToolBridgeSection = userSec
 		request.ToolBridgeAssistantSample = asstSec
 		if toolMsgs := toolCallMessagesFromRequest(messages); len(toolMsgs) > 0 {
@@ -1826,8 +1825,6 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			request.ToolBridgeAssistantSample = ""
 			request.ToolBridgeSection += buildToolResultsPrompt(toolMsgs)
 		}
-	} else if toolMsgs := toolCallMessagesFromRequest(messages); len(toolMsgs) > 0 {
-		request.ToolBridgeSection = buildToolResultsPrompt(toolMsgs)
 	}
 	request.ConversationID = firstNonEmpty(strings.TrimSpace(conversation.ID), preferredConversationID)
 	conversationID := a.startConversationTurn(conversation.ID, preferredConversationID, "api", "chat_completions", resolveRequestPromptForContinuation(normalized), request)
@@ -1854,17 +1851,12 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		// S4 stop 截断：只作用于净化后的正文通道（工具调用不受影响）
 		result.Text = truncateAtStop(result.Text, request.StopSequences)
 	}
-	responsePayload := buildChatCompletion(result, entry.ID, cfg.DebugUpstream)
+	responsePayload := buildChatCompletionWithToolsForWorkingDirectory(result, entry.ID, cfg.DebugUpstream, hasTools, request.ClientWorkingDirectory)
 	// 工具桥：请求带 tools 时从响应提取工具调用（Notion 不支持原生 tool_calls，走 prompt 桥）
-	if len(sliceValue(typed.Tools)) > 0 {
+	if hasTools {
 		calls := extractToolCalls(rawResultText)
-		if len(calls) == 0 {
-			// c2a synthesizer：模型拒答但上下文含明确工具意图（路径/强制）→ 服务端合成。
-			// 2026-08-26：回填轮也允许（opus review B：Write 先、Bash 回填后下一轮），
-			// 防死循环由 synthesizeTaskCall 内部推进逻辑（回填检测+去重）负责。
-			calls = synthesizeToolCall(rawResultText, parseToolList(typed.Tools), messages, toolChoiceForced(payload["tool_choice"]), forcedToolName(payload["tool_choice"]))
-			// 任务型合成（2026-08-26 CC 项目测试）：模型输出方案文本而非调用块时，
-			// 委托给 CC 的 Agent 工具真正执行（写文件/运行类任务）。
+		if len(calls) == 0 && request.AllowTextToolSynthesis {
+			calls = synthesizeToolCall(rawResultText, parseToolList(typed.Tools), messages, toolChoiceForced(typed.ToolChoice), forcedToolName(typed.ToolChoice))
 			if len(calls) == 0 {
 				calls = synthesizeTaskCall(rawResultText, parseToolList(typed.Tools), messages)
 			}
@@ -1873,7 +1865,7 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		calls = filterCallsToAvailable(calls, toolList)
 		calls = normalizeToolArgumentsWithSchema(calls, toolList)
 		if len(calls) > 0 {
-			calls = unmaskToolCallPaths(calls)
+			calls = unmaskToolCallPathsForWorkingDirectory(calls, request.ClientWorkingDirectory)
 			if choice, ok := responsePayload["choices"].([]map[string]any); ok && len(choice) > 0 {
 				if message, ok := choice[0]["message"].(map[string]any); ok {
 					message["tool_calls"] = calls
@@ -2011,13 +2003,14 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeInvalidBodyError(w, err)
 		return
 	}
-	typed, responsesPayload, err := decodeResponsesRequestBodyFromRaw(raw)
+	typed, _, err := decodeResponsesRequestBodyFromRaw(raw)
 	if err != nil {
 		writeInvalidBodyError(w, err)
 		return
 	}
-	responsesToolChoiceForced := toolChoiceForced(responsesPayload["tool_choice"])
-	responsesForcedName := forcedToolName(responsesPayload["tool_choice"])
+	responsesToolChoiceForced := toolChoiceForced(typed.ToolChoice)
+	responsesForcedName := forcedToolName(typed.ToolChoice)
+	responsesToolsAllowed := toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
 	stream := typed.Stream
 	var previousResponse map[string]any
 	previousResponseID := strings.TrimSpace(typed.PreviousResponseID)
@@ -2029,7 +2022,8 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	normalized, err := normalizeResponsesInputFromParts(typed.Input, typed.Attachments, previousResponse)
+	includeResponsesToolResults := !toolChoiceNone(typed.ToolChoice)
+	normalized, err := normalizeResponsesInputFromPartsWithInstructionsAndToolResults(typed.Input, typed.Attachments, previousResponse, typed.Instructions, includeResponsesToolResults)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", nilString())
 		return
@@ -2064,8 +2058,14 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Attachments:        normalized.Attachments,
 		SessionFingerprint: originalFingerprint,
 		RawMessageCount:    originalRawMessageCount,
-		ToolsRaw:           parseToolList(typed.Tools),
-		MaskLocalPaths:     len(sliceValue(typed.Tools)) > 0,
+		ToolsRaw: func() []map[string]any {
+			if responsesToolsAllowed {
+				return parseToolList(typed.Tools)
+			}
+			return nil
+		}(),
+		AllowTextToolSynthesis: cfg.Features.AllowTextToolSynthesis && responsesToolsAllowed,
+		ClientWorkingDirectory: extractWorkingDirectory(toAnySlice(responsesInputAsMessages(typed.Input))),
 	}
 	freshThreadMode := forceFreshThreadPerRequest(cfg)
 	conversation := ConversationEntry{}
@@ -2088,14 +2088,10 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 	} else {
 		request.PinnedAccountEmail = requestedAccount
 	}
-	request.MaskLocalPaths = len(sliceValue(typed.Tools)) > 0
-	// 临时诊断：记录 codex 发来的 tools 字段形态
-	rawTools := responsesPayload["tools"]
-	rawToolsJSON, _ := json.Marshal(rawTools)
-	log.Printf("[diag-responses] tools typed-len=%d raw-tools=%s", len(sliceValue(typed.Tools)), truncateStr(string(rawToolsJSON), 400))
+	request.MaskLocalPaths = toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
 	// 工具桥注入（c2a few-shot：user 指令 + assistant 输出示例，组装末端追加）
-	if len(sliceValue(typed.Tools)) > 0 {
-		userSec, asstSec := buildToolBridgePrompt(parseToolList(typed.Tools), stringValue(typed.Model), false, "", extractWorkingDirectory(toAnySlice(responsesInputAsMessages(typed.Input))))
+	if toolsAllowedByChoice(typed.Tools, typed.ToolChoice) {
+		userSec, asstSec := buildToolBridgePrompt(parseToolList(typed.Tools), stringValue(typed.Model), responsesToolChoiceForced, responsesForcedName, extractWorkingDirectory(toAnySlice(responsesInputAsMessages(typed.Input))))
 		request.ToolBridgeSection = userSec
 		request.ToolBridgeAssistantSample = asstSec
 		if toolMsgs := toolCallMessagesFromRequest(sliceValue(typed.Input)); len(toolMsgs) > 0 {
@@ -2123,7 +2119,7 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	// tool_calls 必须在 sanitize 之前 extract（净化会剥离工具块，剥离后再提取必丢）
 	rawResultText := result.Text
-	hasTools := len(sliceValue(typed.Tools)) > 0
+	hasTools := toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
 	var toolCalls []OpenAIToolCall
 	if hasTools {
 		toolCalls = extractToolCalls(rawResultText)
@@ -2132,19 +2128,17 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 		for _, m := range inputMessages {
 			inputAny = append(inputAny, m)
 		}
-		if len(toolCalls) == 0 && len(toolCallMessagesFromRequest(inputAny)) == 0 {
-			// c2a synthesizer：模型拒答但上下文含明确工具意图（路径/强制）→ 服务端合成
+		if len(toolCalls) == 0 && len(toolCallMessagesFromRequest(inputAny)) == 0 && request.AllowTextToolSynthesis {
 			toolCalls = synthesizeToolCall(rawResultText, parseToolList(typed.Tools), inputAny, responsesToolChoiceForced, responsesForcedName)
 		}
 		toolList := parseToolList(typed.Tools)
 		toolCalls = filterCallsToAvailable(toolCalls, toolList)
 		toolCalls = normalizeToolArgumentsWithSchema(toolCalls, toolList)
 		if len(toolCalls) > 0 {
-			toolCalls = unmaskToolCallPaths(toolCalls)
+			toolCalls = unmaskToolCallPathsForWorkingDirectory(toolCalls, request.ClientWorkingDirectory)
 		}
 	}
 	result = applyInferenceResultOutputPolicy(result, request)
-	log.Printf("[diag-responses] hasTools=%v rawResultText(head)=%s extractedCalls=%d", hasTools, truncateStr(sanitizeAssistantVisibleText(result.Text), 300), len(toolCalls))
 	responsePayload := buildResponsesOutputWithCalls(
 		result,
 		entry.ID,
@@ -2480,8 +2474,8 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 	sieveTail := streamSieve.flush()
 	if len(request.ToolsRaw) > 0 {
 		toolCalls = extractToolCalls(rawResultText)
-		if len(toolCalls) == 0 {
-			// 2026-08-26：回填轮也允许合成（防死循环由 synthesizeTaskCall 内部推进逻辑负责）
+		if len(toolCalls) == 0 && request.AllowTextToolSynthesis {
+			// 普通文本合成默认关闭；显式结构化工具块仍在上方直接提取。
 			// 流式场景无原始 messages（已消费）——synthesizer 用 LatestUserPrompt 提取路径。
 			// 回填轮（ToolBridgeSection 含结果注入）禁止合成，防重复合成死循环（opus5 review 循环 1）。
 			synthMessages := []any{}
@@ -2498,7 +2492,7 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 		toolCalls = filterCallsToAvailable(toolCalls, request.ToolsRaw)
 		toolCalls = normalizeToolArgumentsWithSchema(toolCalls, request.ToolsRaw)
 		if len(toolCalls) > 0 {
-			toolCalls = unmaskToolCallPaths(toolCalls)
+			toolCalls = unmaskToolCallPathsForWorkingDirectory(toolCalls, request.ClientWorkingDirectory)
 		}
 	}
 	result = applyInferenceResultOutputPolicy(result, request)
@@ -2541,16 +2535,12 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 			}, usageNull(includeUsage)))
 			// 增量片：只 {index, function.arguments}（不重复 id/type/name），128 字节/片按字节切
 			args := call.Function.Arguments
-			for start := 0; start < len(args); start += 128 {
-				end := start + 128
-				if end > len(args) {
-					end = len(args)
-				}
+			for _, part := range splitUTF8Chunks(args, 128) {
 				_ = safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
 					buildChatStreamDeltaChoice(0, map[string]any{
 						"tool_calls": []any{map[string]any{
 							"index":    i,
-							"function": map[string]any{"arguments": args[start:end]},
+							"function": map[string]any{"arguments": part},
 						}},
 					},
 					),
@@ -2706,7 +2696,7 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 				if err := safeWriteEvent("response.reasoning.done", buildResponsesReasoningDoneEvent(
 					responseID,
 					outputItemID,
-					"",
+					sanitizeAssistantVisibleText(emittedReasoning.String()),
 				)); err != nil {
 					return err
 				}
@@ -2784,21 +2774,21 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 			a.State.saveResponseWithAccount(responseID, completedResponse, conversationID, "", "")
 			a.completeConversation(conversationID, partialResult)
 			a.persistConversationSession(conversationID, request, partialResult)
-			streamCompletedItem := buildResponsesStreamTerminalItem(outputItemID, "completed")
+			streamCompletedItem := buildResponsesStreamTerminalItemFromResponse(completedResponse, outputItemID)
 			streamCompletedResponse := buildResponsesStreamCompletedResponse(completedResponse, outputItemID)
 			finalEvents := []struct {
 				name    string
 				payload map[string]any
 			}{
-				{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, "")},
-				{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, "")},
+				{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, partialText)},
+				{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, partialText)},
 			}
 			if partialReasoning != "" && !reasoningPhaseDone {
 				reasoningPhaseDone = true
 				finalEvents = append(finalEvents, struct {
 					name    string
 					payload map[string]any
-				}{name: "response.reasoning.done", payload: buildResponsesReasoningDoneEvent(responseID, outputItemID, "")})
+				}{name: "response.reasoning.done", payload: buildResponsesReasoningDoneEvent(responseID, outputItemID, partialReasoning)})
 			}
 			finalEvents = append(finalEvents,
 				struct {
@@ -2831,8 +2821,8 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 	toolCalls := []OpenAIToolCall(nil)
 	if len(request.ToolsRaw) > 0 {
 		toolCalls = extractToolCalls(rawResultText)
-		if len(toolCalls) == 0 {
-			// 2026-08-26：回填轮也允许合成（防死循环由 synthesizeTaskCall 内部推进逻辑负责）
+		if len(toolCalls) == 0 && request.AllowTextToolSynthesis {
+			// 普通文本合成默认关闭；显式结构化工具块仍在上方直接提取。
 			synthMessages := []any{}
 			if prompt := strings.TrimSpace(request.LatestUserPrompt); prompt != "" {
 				synthMessages = append(synthMessages, map[string]any{"role": "user", "content": prompt})
@@ -2847,50 +2837,62 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		toolCalls = filterCallsToAvailable(toolCalls, request.ToolsRaw)
 		toolCalls = normalizeToolArgumentsWithSchema(toolCalls, request.ToolsRaw)
 		if len(toolCalls) > 0 {
-			toolCalls = unmaskToolCallPaths(toolCalls)
+			toolCalls = unmaskToolCallPathsForWorkingDirectory(toolCalls, request.ClientWorkingDirectory)
 		}
 	}
 	if len(toolCalls) > 0 {
-		// 工具场景：已流式正文保留（拒绝文本已发），追加 function_call item 事件
+		// Close the initial message item before appending function-call items.
+		// Each call gets a distinct item ID and output index so event streams
+		// reconcile with response.completed.output.
 		if err := startStream(); err != nil {
 			return
 		}
-		fcID := "fc_" + strings.ReplaceAll(randomUUID(), "-", "")
-		for _, call := range toolCalls {
-			callID := call.ID
-			if strings.TrimSpace(callID) == "" {
-				callID = "call_" + shortID(16)
-			}
+		if emittedText := sanitizeAssistantVisibleText(emittedVisibleText.String()); emittedText != "" {
+			_ = safeWriteEvent("response.output_text.done", buildResponsesOutputTextDoneEvent(responseID, outputItemID, emittedText))
+			_ = safeWriteEvent("response.content_part.done", buildResponsesContentPartDoneEvent(responseID, outputItemID, emittedText))
+		}
+		messageResponse := buildResponsesOutputWithIDs(result, modelID, includeTrace, responseID, outputItemID, createdAt)
+		_ = safeWriteEvent("response.output_item.done", map[string]any{
+			"response_id":  responseID,
+			"output_index": 0,
+			"item":         buildResponsesStreamTerminalItemFromResponse(messageResponse, outputItemID),
+		})
+		completedCalls := make([]OpenAIToolCall, 0, len(toolCalls))
+		for i, call := range toolCalls {
+			callID := firstNonEmpty(call.ID, "call_"+shortID(16))
+			itemID := "fc_" + strings.ReplaceAll(randomUUID(), "-", "")
 			item := map[string]any{
-				"type": "function_call", "id": fcID, "call_id": callID,
+				"type": "function_call", "id": itemID, "call_id": callID,
 				"name": call.Function.Name, "arguments": "", "status": "in_progress",
 			}
 			_ = safeWriteEvent("response.output_item.added", map[string]any{
-				"output_index": 1, "item": item,
+				"response_id":  responseID,
+				"output_index": i + 1, "item": item,
 			})
-			// 增量分片（与 REQ-TOOL-04 一致的 arguments 增量语义）
 			args := call.Function.Arguments
-			for start := 0; start < len(args); start += 128 {
-				end := start + 128
-				if end > len(args) {
-					end = len(args)
-				}
+			for _, part := range splitUTF8Chunks(args, 128) {
 				_ = safeWriteEvent("response.function_call_arguments.delta", map[string]any{
-					"output_index": 1, "item_id": fcID, "delta": args[start:end],
+					"response_id":  responseID,
+					"output_index": i + 1, "item_id": itemID, "delta": part,
 				})
 			}
 			_ = safeWriteEvent("response.function_call_arguments.done", map[string]any{
-				"output_index": 1, "item_id": fcID, "arguments": args,
+				"response_id":  responseID,
+				"output_index": i + 1, "item_id": itemID, "arguments": args,
 			})
 			_ = safeWriteEvent("response.output_item.done", map[string]any{
-				"output_index": 1,
+				"response_id":  responseID,
+				"output_index": i + 1,
 				"item": map[string]any{
-					"type": "function_call", "id": fcID, "call_id": callID,
+					"type": "function_call", "id": itemID, "call_id": callID,
 					"name": call.Function.Name, "arguments": args, "status": "completed",
 				},
 			})
+			call.ID = callID
+			call.OutputItemID = itemID
+			completedCalls = append(completedCalls, call)
 		}
-		completedResponse := buildResponsesOutputWithCalls(result, modelID, includeTrace, responseID, outputItemID, createdAt, toolCalls)
+		completedResponse := buildResponsesOutputWithCalls(result, modelID, includeTrace, responseID, outputItemID, createdAt, completedCalls)
 		attachConversationResponseMetadata(completedResponse, conversationID, result.ThreadID)
 		a.State.saveResponseWithAccount(responseID, completedResponse, conversationID, result.ThreadID, result.AccountEmail)
 		a.completeConversation(conversationID, result)
@@ -2899,6 +2901,7 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		safeWriteDone()
 		return
 	}
+
 	result = applyInferenceResultOutputPolicy(result, request)
 	finalText := result.Text
 	if strings.TrimSpace(result.Text) == "" && strings.TrimSpace(finalText) != "" {
@@ -2921,7 +2924,7 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 	a.State.saveResponseWithAccount(responseID, completedResponse, conversationID, result.ThreadID, result.AccountEmail)
 	a.completeConversation(conversationID, result)
 	a.persistConversationSession(conversationID, request, result)
-	streamCompletedItem := buildResponsesStreamTerminalItem(outputItemID, "completed")
+	streamCompletedItem := buildResponsesStreamTerminalItemFromResponse(completedResponse, outputItemID)
 	streamCompletedResponse := buildResponsesStreamCompletedResponse(completedResponse, outputItemID)
 	if err := startStream(); err != nil {
 		return
@@ -2930,15 +2933,15 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		name    string
 		payload map[string]any
 	}{
-		{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, "")},
-		{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, "")},
+		{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, finalText)},
+		{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, finalText)},
 	}
 	if result.Reasoning != "" && !reasoningPhaseDone {
 		reasoningPhaseDone = true
 		finalEvents = append(finalEvents, struct {
 			name    string
 			payload map[string]any
-		}{name: "response.reasoning.done", payload: buildResponsesReasoningDoneEvent(responseID, outputItemID, "")})
+		}{name: "response.reasoning.done", payload: buildResponsesReasoningDoneEvent(responseID, outputItemID, sanitizeAssistantVisibleText(result.Reasoning))})
 	}
 	finalEvents = append(finalEvents, struct {
 		name    string
@@ -2998,7 +3001,7 @@ func (a *App) writeResponsesStream(w http.ResponseWriter, r *http.Request, resul
 	attachConversationResponseMetadata(inProgressResponse, conversationID, "")
 	attachConversationResponseMetadata(completedResponse, conversationID, result.ThreadID)
 	a.State.saveResponseWithAccount(responseID, completedResponse, conversationID, result.ThreadID, result.AccountEmail)
-	streamCompletedItem := buildResponsesStreamTerminalItem(outputItemID, "completed")
+	streamCompletedItem := buildResponsesStreamTerminalItemFromResponse(completedResponse, outputItemID)
 	streamCompletedResponse := buildResponsesStreamCompletedResponse(completedResponse, outputItemID)
 	inProgressItem := buildResponsesMessageItem(outputItemID, "", "in_progress")
 	cfg, _, _ := a.State.Snapshot()
@@ -3048,8 +3051,8 @@ func (a *App) writeResponsesStream(w http.ResponseWriter, r *http.Request, resul
 		name    string
 		payload map[string]any
 	}{
-		{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, "")},
-		{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, "")},
+		{name: "response.output_text.done", payload: buildResponsesOutputTextDoneEvent(responseID, outputItemID, assistantText)},
+		{name: "response.content_part.done", payload: buildResponsesContentPartDoneEvent(responseID, outputItemID, assistantText)},
 		{name: "response.output_item.done", payload: buildResponsesOutputItemDoneEvent(responseID, streamCompletedItem)},
 	}
 	for _, event := range finalEvents {
@@ -3192,7 +3195,7 @@ func Main() {
 	app.StartEphemeralConversationCleanupLoop(context.Background())
 	app.StartWorkspaceDeletionLoop(context.Background())
 	go app.startAccountReconcilerLoop(context.Background()) // P2:池水位巡检自动补号(register.enabled 时生效)
-	go app.startSpacePoolLoop(context.Background()) // 空间冷却恢复+池补齐(space_pool.enabled 时生效)
+	go app.startSpacePoolLoop(context.Background())         // 空间冷却恢复+池补齐(space_pool.enabled 时生效)
 	if cfg.Debug.PprofEnabled {
 		go func(addr string) {
 			log.Printf("[pprof] listening on http://%s/debug/pprof/ (local debug endpoint; avoid public exposure)", addr)
@@ -3239,6 +3242,7 @@ func Main() {
 		}
 	}
 }
+
 // toAnySlice — []map[string]any → []any（extractWorkingDirectory 泛化入参用）
 func toAnySlice(items []map[string]any) []any {
 	out := make([]any, 0, len(items))

@@ -26,6 +26,7 @@ type FeatureConfig struct {
 	WriterMode                 bool     `json:"writer_mode"`
 	EnableGenerateImage        bool     `json:"enable_generate_image"`
 	EnableCsvAttachmentSupport bool     `json:"enable_csv_attachment_support"`
+	AllowTextToolSynthesis     bool     `json:"allow_text_tool_synthesis,omitempty"`
 	AISurface                  string   `json:"ai_surface"`
 	ThreadType                 string   `json:"thread_type"`
 	SearchScopes               []string `json:"search_scopes"`
@@ -50,6 +51,9 @@ type SessionRefreshConfig struct {
 
 type DispatchConfig struct {
 	ProbeCacheTTLSeconds int `json:"probe_cache_ttl_seconds,omitempty"`
+	// ProtocolProbeTimeoutSeconds bounds account-health probes only; it must not
+	// cap the normal inference request lifetime.
+	ProtocolProbeTimeoutSeconds int `json:"protocol_probe_timeout_seconds,omitempty"`
 }
 
 type BrowserConfig struct {
@@ -507,7 +511,8 @@ func defaultConfig() AppConfig {
 			AutoSwitch:       true,
 		},
 		Dispatch: DispatchConfig{
-			ProbeCacheTTLSeconds: 45,
+			ProbeCacheTTLSeconds:        45,
+			ProtocolProbeTimeoutSeconds: 20,
 		},
 		Debug: DebugConfig{
 			PprofEnabled: false,

@@ -8,13 +8,13 @@ package app
 
 import (
 	"bufio"
-	"sync"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -90,6 +90,8 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 	}()
 	defer func() { close(pingStop); <-pingDone }()
 	var openToolIdx = -1 // 当前打开的 OpenAI tool_calls index（未映射到 Anthropic 块前为 -1）
+	textBlockIdx := -1
+	textStarted := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data: ") {
@@ -121,7 +123,11 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 			if msg == "" {
 				msg = "stream error"
 			}
-			_ = c.send("error", map[string]any{"type": "error", "error": map[string]any{"type": "api_error", "message": msg}})
+			errorPayload := map[string]any{"type": firstNonEmpty(stringValue(errObj["type"]), "api_error"), "message": msg}
+			if code := strings.TrimSpace(stringValue(errObj["code"])); code != "" {
+				errorPayload["code"] = code
+			}
+			_ = c.send("error", map[string]any{"type": "error", "error": errorPayload})
 			return nil
 		}
 		if u, ok := chunk["usage"].(map[string]any); ok && len(u) > 0 {
@@ -152,16 +158,19 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 				_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": c.blockIdx - 1})
 				openToolIdx = -1
 			}
-			_ = c.send("content_block_start", map[string]any{
-				"type": "content_block_start", "index": c.blockIdx,
-				"content_block": map[string]any{"type": "text", "text": ""},
-			})
+			if !textStarted {
+				textBlockIdx = c.blockIdx
+				c.blockIdx++
+				_ = c.send("content_block_start", map[string]any{
+					"type": "content_block_start", "index": textBlockIdx,
+					"content_block": map[string]any{"type": "text", "text": ""},
+				})
+				textStarted = true
+			}
 			_ = c.send("content_block_delta", map[string]any{
-				"type": "content_block_delta", "index": c.blockIdx,
+				"type": "content_block_delta", "index": textBlockIdx,
 				"delta": map[string]any{"type": "text_delta", "text": text},
 			})
-			_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": c.blockIdx})
-			c.blockIdx++
 		}
 		// 工具调用分片
 		if tcs, ok := delta["tool_calls"].([]any); ok && len(tcs) > 0 {
@@ -171,6 +180,10 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 				idx := intValue(tc["index"])
 				// 首片：带 id/name → 打开块
 				if name := strings.TrimSpace(stringValue(fn["name"])); name != "" {
+					if textStarted {
+						_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": textBlockIdx})
+						textStarted = false
+					}
 					if openToolIdx >= 0 {
 						_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": c.blockIdx - 1})
 						openToolIdx = -1
@@ -235,7 +248,7 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 	// 内部链路在上游失败时写的是 JSON 错误体（非 data: 行），且状态码 >=400 —
 	// 必须转成 error 事件，而不是给客户端发"空的成功消息"（CC 会静默继续/重试风暴）。
 	if !c.started {
-		if c.upstream != nil && c.upstream.status >= 400 {
+		if c.upstream != nil && c.upstream.Status() >= 400 {
 			log.Printf("[messages-stream] upstream failed status=%d before SSE start", c.upstream.status)
 			_ = c.send("error", map[string]any{"type": "error", "error": map[string]any{
 				"type": "api_error", "message": anthropicUpstreamErrorMessage(c.upstream.status, c.lastPlainLine),
@@ -268,12 +281,16 @@ func (c *anthropicEventConverter) run(reader io.Reader) error {
 		})
 	}
 	// 收尾：关掉打开的块 → message_delta → message_stop
+	if textStarted {
+		_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": textBlockIdx})
+		textStarted = false
+	}
 	if openToolIdx >= 0 {
 		_ = c.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": c.blockIdx - 1})
 		openToolIdx = -1
 	}
 	_ = c.send("message_delta", map[string]any{
-		"type": "message_delta",
+		"type":  "message_delta",
 		"delta": map[string]any{"stop_reason": finishReason, "stop_sequence": nil},
 		"usage": map[string]any{"output_tokens": usageOut},
 	})

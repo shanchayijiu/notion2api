@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"net"
 	"encoding/json"
 	"errors"
 	"expvar"
@@ -14,6 +13,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -456,6 +456,8 @@ type PromptRunRequest struct {
 	EphemeralDeleteAfter              time.Time
 	ForceLocalConversationContinue    bool
 	MaskLocalPaths                    bool
+	ClientWorkingDirectory            string
+	AllowTextToolSynthesis            bool
 	ToolBridgeSection                 string
 	ToolBridgeAssistantSample         string
 	ToolsRaw                          []map[string]any
@@ -2669,7 +2671,8 @@ func (s *ndjsonTranscriptState) handleLine(line []byte, threadID string, sink In
 
 // parseAgentToolUse — 从 NDJSON agent-tool-result 事件提取工具调用（透传 Notion 原生工具）
 // 结构：{id, type:"agent-tool-result", toolName:"callFunction", toolType:"callFunction",
-//        input:{function:"connections.fs.readFiles", args:{...}}}
+//
+//	input:{function:"connections.fs.readFiles", args:{...}}}
 func parseAgentToolUse(item map[string]any) *InferenceToolUse {
 	// input.function 优先（具体函数名），fallback toolName
 	name := strings.TrimSpace(stringValue(mapValue(item["input"])["function"]))
@@ -2760,9 +2763,11 @@ var errNDJSONLineTooLarge = errors.New("ndjson line too large")
 
 // ndjsonSilenceTimeout — P0-1 静默看门狗:从流开始到结束全程武装,
 // 任何 NDJSON 行(含 config/context 前奏行)到达即重置。覆盖两类黑洞:
-//   ① 上游返回 200 后永不发行(首行超时):此前 idle 计时只在可见答案后才武装,
-//      无账号池 fallback 下能挂 900s,keepalive 还让客户端永不超时;
-//   ② agent-inference 启动后永不产出(半截推理,账号被上游标记的已知演化形态)。
+//
+//	① 上游返回 200 后永不发行(首行超时):此前 idle 计时只在可见答案后才武装,
+//	   无账号池 fallback 下能挂 900s,keepalive 还让客户端永不超时;
+//	② agent-inference 启动后永不产出(半截推理,账号被上游标记的已知演化形态)。
+//
 // 上游正常账号每步推理都有 NDJSON 行(思考/工具/答案),45s = TTFB p50(~2.9s)的 15 倍余量。
 var ndjsonSilenceTimeout = 45 * time.Second
 
@@ -3739,7 +3744,7 @@ func buildContinuationBaseTranscript(draft *continuationTurnDraft, configValue m
 func maskIfEnabled(req PromptRunRequest) string {
 	prompt := req.Prompt
 	if req.MaskLocalPaths {
-		prompt = maskLocalPaths(prompt)
+		prompt = maskLocalPathsForWorkingDirectory(prompt, req.ClientWorkingDirectory)
 	}
 	if section := strings.TrimSpace(req.ToolBridgeSection); section != "" {
 		prompt = strings.TrimSpace(prompt) + "\n\n" + section
@@ -4185,6 +4190,8 @@ func (c *NotionAIClient) preparePromptRequest(ctx context.Context, req PromptRun
 		RawMessageCount:                   req.RawMessageCount,
 		ConversationID:                    req.ConversationID,
 		MaskLocalPaths:                    req.MaskLocalPaths,
+		ClientWorkingDirectory:            req.ClientWorkingDirectory,
+		AllowTextToolSynthesis:            req.AllowTextToolSynthesis,
 		ToolBridgeSection:                 req.ToolBridgeSection,
 		ToolBridgeAssistantSample:         req.ToolBridgeAssistantSample,
 		ToolsRaw:                          req.ToolsRaw,

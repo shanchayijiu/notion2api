@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, FileImage, Search, SendHorizonal, Sparkles, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,79 @@ import { copyText, readFilesAsAttachments } from '@/lib/services/core/api-client
 import type { ModelItem } from '@/lib/services/admin/types';
 
 const SELECT_TRIGGER_CLASS = 'h-10 w-full rounded-lg border-input bg-transparent';
+
+type TesterEvent = { event: string; data: string };
+
+type TesterToolCall = {
+  id?: string;
+  name?: string;
+  arguments: string;
+};
+
+function buildLiveOutput(events: TesterEvent[]): string {
+  const textParts: string[] = [];
+  const reasoningParts: string[] = [];
+  const toolCalls: Record<string, TesterToolCall> = {};
+  let usage: unknown;
+  let error: string | undefined;
+
+  for (const event of events) {
+    if (event.data === '[DONE]') continue;
+    try {
+      const payload = JSON.parse(event.data) as {
+        choices?: Array<{
+          delta?: {
+            content?: string;
+            reasoning_content?: string;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+        }>;
+        usage?: unknown;
+        error?: { message?: string };
+      };
+      if (payload.error?.message) error = payload.error.message;
+      const delta = payload.choices?.[0]?.delta;
+      if (delta?.content) textParts.push(delta.content);
+      if (delta?.reasoning_content) reasoningParts.push(delta.reasoning_content);
+      for (const call of delta?.tool_calls || []) {
+        const key = String(call.index ?? Object.keys(toolCalls).length);
+        const current = toolCalls[key] || { arguments: '' };
+        current.id ||= call.id;
+        current.name ||= call.function?.name;
+        current.arguments += call.function?.arguments || '';
+        toolCalls[key] = current;
+      }
+      if (payload.usage) usage = payload.usage;
+    } catch {
+      // Keep non-JSON SSE frames in the raw event list without interrupting the preview.
+    }
+  }
+
+  return JSON.stringify(
+    {
+      stream: true,
+      status: events.some((event) => event.data === '[DONE]') ? 'completed' : 'streaming',
+      text: textParts.join(''),
+      reasoning: reasoningParts.join(''),
+      tool_calls: Object.values(toolCalls),
+      usage,
+      error,
+      events,
+    },
+    null,
+    2,
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError';
+}
 
 function buildTesterConversationID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -66,6 +139,8 @@ export function TesterPanel({
     use_web_search: boolean;
     attachments: Awaited<ReturnType<typeof readFilesAsAttachments>>;
     conversation_id?: string;
+    signal?: AbortSignal;
+    onEvent?: (event: TesterEvent) => void;
   }) => Promise<unknown>;
 }) {
   const [prompt, setPrompt] = useState('');
@@ -76,6 +151,7 @@ export function TesterPanel({
   const [files, setFiles] = useState<File[]>([]);
   const [output, setOutput] = useState('等待运行...');
   const [running, setRunning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fileLabels = useMemo(() => files.map((file) => file.name), [files]);
   const promptLength = useMemo(() => prompt.trim().length, [prompt]);
@@ -92,6 +168,8 @@ export function TesterPanel({
   async function performRun() {
     setRunning(true);
     setOutput('运行中...');
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const attachments = files.length ? await readFilesAsAttachments(files) : [];
       let nextConversationID = '';
@@ -107,6 +185,19 @@ export function TesterPanel({
         use_web_search: useWebSearch,
         attachments,
         conversation_id: nextConversationID || undefined,
+        signal: controller.signal,
+        onEvent: (event) => {
+          setOutput((current) => {
+            let events: TesterEvent[] = [];
+            try {
+              const parsed = JSON.parse(current) as { events?: TesterEvent[] };
+              events = Array.isArray(parsed.events) ? parsed.events : [];
+            } catch {
+              // Replace the initial status text with the first live event.
+            }
+            return buildLiveOutput([...events, event]);
+          });
+        },
       });
       if (payload && typeof payload === 'object' && payload !== null) {
         const returnedConversationID = typeof (payload as { conversation_id?: unknown }).conversation_id === 'string'
@@ -119,10 +210,15 @@ export function TesterPanel({
       setOutput(JSON.stringify(payload, null, 2));
       toast.success('测试完成');
     } catch (error) {
-      const message = error instanceof Error ? error.message : '测试失败';
+      const message = isAbortError(error) ? '已取消测试' : error instanceof Error ? error.message : '测试失败';
       setOutput(message);
-      toast.error(message);
+      if (isAbortError(error)) {
+        toast.info(message);
+      } else {
+        toast.error(message);
+      }
     } finally {
+      abortRef.current = null;
       setRunning(false);
     }
   }
@@ -229,7 +325,7 @@ export function TesterPanel({
                 className="h-auto rounded-lg bg-transparent py-3"
                 onChange={(event) => setFiles(Array.from(event.target.files || []))}
               />
-              <p className="text-xs leading-5 text-muted-foreground">支持图片、PDF、CSV；浏览器会转成 data URL 后提交到 <code className="rounded bg-muted px-1">/admin/test</code>。</p>
+              <p className="text-xs leading-5 text-muted-foreground">支持图片、PDF、CSV；浏览器会转成 data URL 后提交到真实的 <code className="rounded bg-muted px-1">/v1/chat/completions</code> Wire API。</p>
               <div className="surface-subtle min-h-[60px] rounded-lg p-3">
                 {fileLabels.length ? (
                   <div className="flex flex-wrap gap-2">
@@ -255,6 +351,11 @@ export function TesterPanel({
                 <SendHorizonal className="size-4" />
                 {running ? '运行中...' : '运行测试'}
               </Button>
+              {running ? (
+                <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
+                  取消
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 onClick={async () => {

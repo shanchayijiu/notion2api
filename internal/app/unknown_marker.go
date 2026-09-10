@@ -71,9 +71,10 @@ type unknownMarkerHit struct {
 
 // scanUnknownUpstreamMarkers — 启发式扫描原始流。
 // 规则：
-//   U1 未登记的 XML 标签（<name...> / </name>，name ∉ 登记表）
-//   U2 未登记的尖括号控制形态（<|...|>、{{...}} 等）
-//   U3 全角方括号引用角标之外的疑似控制块（【...】内非 citation 数字）
+//
+//	U1 未登记的 XML 标签（<name...> / </name>，name ∉ 登记表）
+//	U2 未登记的尖括号控制形态（<|...|>、{{...}} 等）
+//	U3 全角方括号引用角标之外的疑似控制块（【...】内非 citation 数字）
 func scanUnknownUpstreamMarkers(raw string) []unknownMarkerHit {
 	var hits []unknownMarkerHit
 	for _, m := range xmlOpenTagPattern.FindAllStringSubmatchIndex(raw, -1) {

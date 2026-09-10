@@ -110,11 +110,11 @@ func normalizeChatInput(payload map[string]any) (NormalizedInput, error) {
 	// 工具桥：请求带 tools → 注入工具清单 prompt；带 tool 结果 → 注入执行结果
 	tools := sliceValue(payload["tools"])
 	toolMessages := toolCallMessagesFromRequest(rawMessages)
-	if len(tools) > 0 {
+	if len(tools) > 0 && !toolChoiceNone(payload["tool_choice"]) {
 		if userSec, _ := buildToolBridgePrompt(parseToolList(tools), "", toolChoiceForced(payload["tool_choice"]), forcedToolName(payload["tool_choice"]), ""); userSec != "" {
 			normalized.HiddenPrompt = strings.TrimSpace(normalized.HiddenPrompt + "\n\n" + userSec)
 		}
-	} else if len(toolMessages) > 0 {
+	} else if !toolChoiceNone(payload["tool_choice"]) && len(toolMessages) > 0 {
 		if section := buildToolResultsPrompt(toolMessages); section != "" {
 			normalized.HiddenPrompt = strings.TrimSpace(normalized.HiddenPrompt + "\n\n" + section)
 		}
@@ -244,10 +244,18 @@ func buildConversationTranscriptPrompt(segments []conversationPromptSegment) str
 }
 
 func normalizeResponsesInput(payload map[string]any, previousResponse map[string]any) (NormalizedInput, error) {
-	return normalizeResponsesInputFromParts(payload["input"], payload["attachments"], previousResponse)
+	return normalizeResponsesInputFromPartsWithInstructions(payload["input"], payload["attachments"], previousResponse, payload["instructions"])
 }
 
 func normalizeResponsesInputFromParts(rawInput any, attachmentsRaw any, previousResponse map[string]any) (NormalizedInput, error) {
+	return normalizeResponsesInputFromPartsWithInstructions(rawInput, attachmentsRaw, previousResponse, nil)
+}
+
+func normalizeResponsesInputFromPartsWithInstructions(rawInput any, attachmentsRaw any, previousResponse map[string]any, instructions any) (NormalizedInput, error) {
+	return normalizeResponsesInputFromPartsWithInstructionsAndToolResults(rawInput, attachmentsRaw, previousResponse, instructions, true)
+}
+
+func normalizeResponsesInputFromPartsWithInstructionsAndToolResults(rawInput any, attachmentsRaw any, previousResponse map[string]any, instructions any, includeToolResults bool) (NormalizedInput, error) {
 	var (
 		prompt       string
 		hiddenPrompt string
@@ -260,7 +268,7 @@ func normalizeResponsesInputFromParts(rawInput any, attachmentsRaw any, previous
 		prompt = strings.TrimSpace(x)
 		segments = appendConversationPromptSegment(segments, "user", prompt)
 	case []any:
-		prompt, hiddenPrompt, attachments, err = parseResponsesInputItems(x)
+		prompt, hiddenPrompt, attachments, err = parseResponsesInputItemsWithToolResults(x, includeToolResults)
 		if err != nil {
 			return NormalizedInput{}, err
 		}
@@ -277,8 +285,18 @@ func normalizeResponsesInputFromParts(rawInput any, attachmentsRaw any, previous
 		return NormalizedInput{}, err
 	}
 	attachments = append(attachments, extra...)
-	previousPrompt := serializeStoredResponsePrompt(previousResponse)
+	if instructionPrompt := strings.TrimSpace(normalizePromptValue(instructions)); instructionPrompt != "" {
+		hiddenPrompt = joinPromptSections(hiddenPrompt, formatPromptSection("instructions", instructionPrompt))
+	}
+	previousPrompt := serializeStoredResponsePromptWithToolResults(previousResponse, includeToolResults)
 	prompt = strings.TrimSpace(prompt)
+	// A function_call_output is an input turn even when it has no ordinary user
+	// text. Keep a small visible driver prompt while the actual observation stays
+	// in HiddenPrompt, so the upstream receives the result without exposing it as
+	// the assistant's visible answer.
+	if includeToolResults && prompt == "" && responsesInputHasFunctionCallOutput(rawInput) {
+		prompt = "Continue from the tool observation below."
+	}
 	if prompt == "" && len(attachments) > 0 {
 		prompt = defaultUploadedAttachmentPrompt
 	}
@@ -290,6 +308,26 @@ func normalizeResponsesInputFromParts(rawInput any, attachmentsRaw any, previous
 		Attachments:            attachments,
 		Segments:               cloneConversationPromptSegments(segments),
 	}, nil
+}
+
+func joinPromptSections(parts ...string) string {
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if clean := strings.TrimSpace(part); clean != "" {
+			cleaned = append(cleaned, clean)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n\n"))
+}
+
+func responsesInputHasFunctionCallOutput(rawInput any) bool {
+	for _, raw := range sliceValue(rawInput) {
+		item := mapValue(raw)
+		if strings.EqualFold(strings.TrimSpace(stringValue(item["type"])), "function_call_output") {
+			return true
+		}
+	}
+	return false
 }
 
 func appendConversationPromptSegment(segments []conversationPromptSegment, role string, text string) []conversationPromptSegment {
@@ -375,6 +413,10 @@ func continuationHistorySegments(segments []conversationPromptSegment) []convers
 }
 
 func parseResponsesInputItems(items []any) (string, string, []InputAttachment, error) {
+	return parseResponsesInputItemsWithToolResults(items, true)
+}
+
+func parseResponsesInputItemsWithToolResults(items []any, includeToolResults bool) (string, string, []InputAttachment, error) {
 	parts := make([]string, 0, len(items))
 	hiddenParts := make([]string, 0, len(items))
 	attachments := []InputAttachment{}
@@ -386,7 +428,10 @@ func parseResponsesInputItems(items []any) (string, string, []InputAttachment, e
 				parts = append(parts, clean)
 			}
 		case map[string]any:
-			visibleSegments, hiddenSegments, atts, err := renderResponsesInputItemPromptParts(item)
+			if !includeToolResults && strings.EqualFold(strings.TrimSpace(stringValue(item["type"])), "function_call_output") {
+				continue
+			}
+			visibleSegments, hiddenSegments, atts, err := renderResponsesInputItemPromptPartsWithToolResults(item, includeToolResults)
 			if err != nil {
 				return "", "", nil, err
 			}
@@ -573,6 +618,10 @@ func renderChatMessagePromptParts(message map[string]any) ([]string, []string, [
 }
 
 func renderResponsesInputItemPromptParts(item map[string]any) ([]string, []string, []InputAttachment, error) {
+	return renderResponsesInputItemPromptPartsWithToolResults(item, true)
+}
+
+func renderResponsesInputItemPromptPartsWithToolResults(item map[string]any, includeToolResults bool) ([]string, []string, []InputAttachment, error) {
 	if role := strings.TrimSpace(stringValue(item["role"])); role != "" {
 		text, atts, err := parseStructuredContent(item["content"])
 		if err != nil {
@@ -626,6 +675,25 @@ func renderResponsesInputItemPromptParts(item map[string]any) ([]string, []strin
 			return []string{text}, nil, nil, nil
 		}
 		return []string{text}, []string{hiddenMeta}, nil, nil
+	case "function_call":
+		callID := strings.TrimSpace(stringValue(item["call_id"]))
+		name := strings.TrimSpace(stringValue(item["name"]))
+		arguments := normalizeArgumentsJSON(item["arguments"])
+		return nil, []string{formatPromptSection("assistant function_call", joinPromptSections(
+			"call_id="+callID,
+			"name="+name,
+			"arguments="+arguments,
+		))}, nil, nil
+	case "function_call_output":
+		if !includeToolResults {
+			return nil, nil, nil, nil
+		}
+		callID := strings.TrimSpace(stringValue(item["call_id"]))
+		output := normalizePromptValue(item["output"])
+		return nil, []string{formatPromptSection("tool result", joinPromptSections(
+			"call_id="+callID,
+			output,
+		))}, nil, nil
 	default:
 		att, ok, err := parseAttachmentDescriptor(item)
 		if err != nil {
@@ -747,6 +815,10 @@ func firstNonNilValue(values ...any) any {
 }
 
 func serializeStoredResponsePrompt(previousResponse map[string]any) string {
+	return serializeStoredResponsePromptWithToolResults(previousResponse, true)
+}
+
+func serializeStoredResponsePromptWithToolResults(previousResponse map[string]any, includeToolResults bool) string {
 	if len(previousResponse) == 0 {
 		return ""
 	}
@@ -760,6 +832,9 @@ func serializeStoredResponsePrompt(previousResponse map[string]any) string {
 		if len(item) == 0 {
 			continue
 		}
+		if !includeToolResults && strings.EqualFold(strings.TrimSpace(stringValue(item["type"])), "function_call_output") {
+			continue
+		}
 		switch strings.TrimSpace(stringValue(item["type"])) {
 		case "message":
 			role := firstNonEmpty(strings.TrimSpace(stringValue(item["role"])), "assistant")
@@ -770,7 +845,19 @@ func serializeStoredResponsePrompt(previousResponse map[string]any) string {
 			if strings.TrimSpace(text) != "" {
 				parts = append(parts, formatConversationPromptSection(role, text))
 			}
+		case "function_call":
+			parts = append(parts, formatPromptSection("assistant function_call", joinPromptSections(
+				"call_id="+strings.TrimSpace(stringValue(item["call_id"])),
+				"name="+strings.TrimSpace(stringValue(item["name"])),
+				"arguments="+normalizeArgumentsJSON(item["arguments"]),
+			)))
+		case "function_call_output":
+			parts = append(parts, formatPromptSection("tool result", joinPromptSections(
+				"call_id="+strings.TrimSpace(stringValue(item["call_id"])),
+				normalizePromptValue(item["output"]),
+			)))
 		}
+
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
@@ -1073,6 +1160,14 @@ func normalizeLocalPath(value string) string {
 }
 
 func buildChatCompletion(result InferenceResult, modelID string, includeTrace bool) map[string]any {
+	return buildChatCompletionWithTools(result, modelID, includeTrace, true)
+}
+
+func buildChatCompletionWithTools(result InferenceResult, modelID string, includeTrace bool, allowToolCalls bool) map[string]any {
+	return buildChatCompletionWithToolsForWorkingDirectory(result, modelID, includeTrace, allowToolCalls, "")
+}
+
+func buildChatCompletionWithToolsForWorkingDirectory(result InferenceResult, modelID string, includeTrace bool, allowToolCalls bool, workingDirectory string) map[string]any {
 	assistantText := sanitizeAssistantVisibleText(result.Text)
 	reasoningText := sanitizeAssistantVisibleText(result.Reasoning)
 	message := map[string]any{
@@ -1081,16 +1176,18 @@ func buildChatCompletion(result InferenceResult, modelID string, includeTrace bo
 	}
 	attachChatReasoningFields(message, reasoningText)
 	finishReason := "stop"
-	// Notion 原生工具调用（NDJSON tool_use 事件）→ OpenAI tool_calls 透传
-	if len(result.ToolUses) > 0 {
+	// Native upstream tool events are emitted only when the request explicitly
+	// permits tools. The public builders used by admin/legacy paths retain the
+	// historical behavior; protocol handlers pass the request boundary through.
+	if allowToolCalls && len(result.ToolUses) > 0 {
 		calls := make([]map[string]any, 0, len(result.ToolUses))
 		for _, use := range result.ToolUses {
 			calls = append(calls, map[string]any{
-				"id": firstNonEmpty(use.ID, "call_"+shortID(16)),
+				"id":   firstNonEmpty(use.ID, "call_"+shortID(16)),
 				"type": "function",
 				"function": map[string]any{
 					"name":      use.Name,
-					"arguments": unmaskPathArgs(use.Arguments),
+					"arguments": unmaskPathArgsForWorkingDirectory(use.Arguments, workingDirectory),
 				},
 			})
 		}
@@ -1160,6 +1257,23 @@ func buildResponsesStreamTerminalItem(itemID string, status string) map[string]a
 	}
 }
 
+func buildResponsesStreamTerminalItemFromResponse(response map[string]any, itemID string) map[string]any {
+	for _, raw := range sliceValue(response["output"]) {
+		item := mapValue(raw)
+		if item == nil || !strings.EqualFold(strings.TrimSpace(stringValue(item["type"])), "message") {
+			continue
+		}
+		cloned := make(map[string]any, len(item)+1)
+		for key, value := range item {
+			cloned[key] = value
+		}
+		cloned["id"] = itemID
+		cloned["status"] = "completed"
+		return cloned
+	}
+	return buildResponsesStreamTerminalItem(itemID, "completed")
+}
+
 func buildResponsesStreamCompletedResponse(response map[string]any, itemID string) map[string]any {
 	if response == nil {
 		return nil
@@ -1168,13 +1282,22 @@ func buildResponsesStreamCompletedResponse(response map[string]any, itemID strin
 	for key, value := range response {
 		cloned[key] = value
 	}
-	cloned["output_text"] = ""
-	if itemID != "" {
-		cloned["output"] = []any{buildResponsesStreamTerminalItem(itemID, "completed")}
-	} else {
+	// response.completed must expose the same completed output object as the
+	// non-streaming response. The terminal output_item.done event carries the
+	// stream-specific item transition separately; replacing output here loses
+	// the assistant text, reasoning, or function-call items.
+	if itemID == "" {
 		cloned["output"] = []any{}
 	}
-	delete(cloned, "reasoning")
+	if itemID != "" {
+		if outputText, ok := response["output_text"]; ok {
+			cloned["output_text"] = outputText
+		} else {
+			cloned["output_text"] = ""
+		}
+	} else {
+		cloned["output_text"] = ""
+	}
 	return cloned
 }
 
@@ -1242,26 +1365,30 @@ func buildResponsesOutputWithCalls(result InferenceResult, modelID string, inclu
 	}
 	reasoningText := sanitizeAssistantVisibleText(result.Reasoning)
 	usage := buildUsage(result.Prompt, assistantText, reasoningText)
-	outputItems := []any{
-		buildResponsesMessageItemWithReasoning(outputItemID, assistantText, reasoningText, "completed"),
-	}
+	outputItems := make([]any, 0, 1+len(calls))
+	// The live Responses stream opens the assistant message item before it can
+	// know whether the upstream will also produce function calls. Keep that
+	// item in the completed output even when its text is empty, so every
+	// output_index and output_item.done item has a matching terminal output.
+	outputItems = append(outputItems, buildResponsesMessageItemWithReasoning(outputItemID, assistantText, reasoningText, "completed"))
 	for _, call := range calls {
+		callID := firstNonEmpty(call.ID, "call_"+shortID(16))
 		outputItems = append(outputItems, map[string]any{
 			"type":      "function_call",
-			"id":        "fc_" + strings.ReplaceAll(randomUUID(), "-", ""),
-			"call_id":   call.ID,
+			"id":        firstNonEmpty(call.OutputItemID, "fc_"+strings.TrimPrefix(callID, "call_"), "fc_"+strings.ReplaceAll(randomUUID(), "-", "")),
+			"call_id":   callID,
 			"name":      call.Function.Name,
 			"arguments": call.Function.Arguments,
 			"status":    "completed",
 		})
 	}
 	payload := map[string]any{
-		"id":         responseID,
-		"object":     "response",
-		"created_at": createdAt,
-		"status":     "completed",
-		"model":      modelID,
-		"output":     outputItems,
+		"id":                 responseID,
+		"object":             "response",
+		"created_at":         createdAt,
+		"status":             "completed",
+		"model":              modelID,
+		"output":             outputItems,
 		"output_text":        assistantText,
 		"error":              nil,
 		"incomplete_details": nil,
@@ -1330,6 +1457,36 @@ func splitTextChunks(text string, chunkRunes int) []string {
 			end = len(runes)
 		}
 		chunks = append(chunks, string(runes[start:end]))
+	}
+	return chunks
+}
+
+func splitUTF8Chunks(text string, chunkBytes int) []string {
+	if chunkBytes <= 0 {
+		chunkBytes = 128
+	}
+	if text == "" {
+		return nil
+	}
+	chunks := make([]string, 0, (len(text)/chunkBytes)+1)
+	for start := 0; start < len(text); {
+		end := start + chunkBytes
+		if end >= len(text) {
+			chunks = append(chunks, text[start:])
+			break
+		}
+		for end > start && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		if end == start {
+			_, size := utf8.DecodeRuneInString(text[start:])
+			if size <= 0 {
+				size = 1
+			}
+			end = start + size
+		}
+		chunks = append(chunks, text[start:end])
+		start = end
 	}
 	return chunks
 }

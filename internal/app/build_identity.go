@@ -22,9 +22,9 @@ var sanitizerConfigVersion = "v2"
 var dialectTableVersion = "v1"
 
 var (
-	buildIdentityOnce    sync.Once
-	buildFingerprintInfo buildIdentityInfo
-	buildFingerprintID   string
+	buildIdentityOnce      sync.Once
+	buildFingerprintInfo   buildIdentityInfo
+	buildFingerprintID     string
 	buildFingerprintHeader string
 )
 
@@ -56,13 +56,13 @@ func resolveBuildIdentity() buildIdentityInfo {
 			binarySHA = "unknown"
 		}
 		buildFingerprintInfo = buildIdentityInfo{
-			CommitSHA:      commit,
-			BinarySHA256:   binarySHA,
-			SanitizerVer:   sanitizerConfigVersion,
-			DialectVer:     dialectTableVersion,
+			CommitSHA:       commit,
+			BinarySHA256:    binarySHA,
+			SanitizerVer:    sanitizerConfigVersion,
+			DialectVer:      dialectTableVersion,
 			UpstreamProfile: "notion-runinferencetranscript",
-			StartedAt:      time.Now().Format(time.RFC3339),
-			StartedUnix:    time.Now().Unix(),
+			StartedAt:       time.Now().Format(time.RFC3339),
+			StartedUnix:     time.Now().Unix(),
 		}
 		buildFingerprintID = binarySHA[:minIntBuild(12, len(binarySHA))] + "-" + sanitizerConfigVersion + "-" + itoa(buildFingerprintInfo.StartedUnix)
 		buildFingerprintInfo.Fingerprint = buildFingerprintID

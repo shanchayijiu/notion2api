@@ -63,6 +63,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build admin frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          test -f out/index.html
+          test -d out/_next/static
+
       - name: Resolve version
         id: version
         shell: bash
@@ -95,14 +110,20 @@ jobs:
           cp LICENSE "${staging_dir}/"
           cp config.example.json "${staging_dir}/"
           cp config.docker.json "${staging_dir}/"
+          mkdir -p "${staging_dir}/static"
+          cp -R frontend/out "${staging_dir}/static/admin"
+          test -f "${staging_dir}/static/admin/index.html"
+          test -d "${staging_dir}/static/admin/_next/static"
 
           if [[ "${ARCHIVE_KIND}" == "zip" ]]; then
             (
               cd dist
               zip -r "${package_name}.zip" "${package_name}"
             )
+            unzip -l "dist/${package_name}.zip" | grep -q "${package_name}/static/admin/index.html"
           else
             tar -C dist -czf "dist/${package_name}.tar.gz" "${package_name}"
+            tar -tzf "dist/${package_name}.tar.gz" | grep -q "${package_name}/static/admin/index.html"
           fi
 
       - name: Upload binary artifact

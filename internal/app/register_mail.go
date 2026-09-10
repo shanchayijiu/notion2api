@@ -10,10 +10,10 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"log"
 	"fmt"
 	"html"
+	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
@@ -205,8 +205,8 @@ func randomToken(n int) string {
 // ── AdGuard 提供器（仅复用已建 mailbox，纯 HTTP 收信）───────────────────────
 
 type adguardMailbox struct {
-	Address  string
-	Cookies  map[string]string
+	Address string
+	Cookies map[string]string
 }
 
 // adguardPickMailbox — 从 mailboxes 目录挑一个"本机还没注册成功账号"的 mailbox。
@@ -361,7 +361,7 @@ func newRegisterPlainClient(proxy string) (*http.Client, error) {
 		return nil, err
 	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy:             nil,
 		ForceAttemptHTTP2: true,
 	}
 	if strings.TrimSpace(proxy) != "" {
@@ -404,7 +404,7 @@ var guerrillaAcceptedDomains = []string{
 }
 
 type guerrillaMailbox struct {
-	Address string `json:"address"`
+	Address  string `json:"address"`
 	SidToken string `json:"sid_token"`
 }
 
@@ -495,12 +495,12 @@ func guerrillaWaitCode(ctx context.Context, proxy string, mb guerrillaMailbox, n
 		polls++
 		var list struct {
 			List []struct {
-				MailID      int64  `json:"mail_id"`
-				MailFrom    string `json:"mail_from"`
-				MailSubject string `json:"mail_subject"`
-				MailPreview string `json:"mail_excerpt"`
+				MailID        int64  `json:"mail_id"`
+				MailFrom      string `json:"mail_from"`
+				MailSubject   string `json:"mail_subject"`
+				MailPreview   string `json:"mail_excerpt"`
 				MailTimestamp string `json:"mail_timestamp"`
-				MailDate    string `json:"mail_date"`
+				MailDate      string `json:"mail_date"`
 			} `json:"list"`
 		}
 		err := guerrillaCall(ctx, proxy, "check_email", url.Values{"sid_token": {mb.SidToken}, "seq": {"0"}}, &list)

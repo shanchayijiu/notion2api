@@ -13,17 +13,17 @@ import (
 )
 
 const (
-	sanLedgerRuleBOM           = "SAN-TRIM-BOM"
-	sanLedgerRuleTrim          = "SAN-TRIM"
-	sanLedgerRuleLang          = "SAN-LANG"
-	sanLedgerRuleLangLead      = "SAN-LANG-LEAD"
-	sanLedgerRuleLangUnclosed  = "SAN-LANG-UNCLOSED"
-	sanLedgerRuleToolBlock     = "SAN-TOOL-BLOCK"
-	sanLedgerRuleToolFenceUcl  = "SAN-TOOL-FENCE-UNCLOSED"
-	sanLedgerRuleToolXML       = "SAN-TOOL-XML"
-	sanLedgerRuleToolXMLUcl    = "SAN-TOOL-XML-UNCLOSED"
-	sanLedgerRuleCiteTail      = "SAN-CITE-TAIL"
-	sanLedgerRuleInvalidUTF8   = "SAN-INVALID-UTF8"
+	sanLedgerRuleBOM          = "SAN-TRIM-BOM"
+	sanLedgerRuleTrim         = "SAN-TRIM"
+	sanLedgerRuleLang         = "SAN-LANG"
+	sanLedgerRuleLangLead     = "SAN-LANG-LEAD"
+	sanLedgerRuleLangUnclosed = "SAN-LANG-UNCLOSED"
+	sanLedgerRuleToolBlock    = "SAN-TOOL-BLOCK"
+	sanLedgerRuleToolFenceUcl = "SAN-TOOL-FENCE-UNCLOSED"
+	sanLedgerRuleToolXML      = "SAN-TOOL-XML"
+	sanLedgerRuleToolXMLUcl   = "SAN-TOOL-XML-UNCLOSED"
+	sanLedgerRuleCiteTail     = "SAN-CITE-TAIL"
+	sanLedgerRuleInvalidUTF8  = "SAN-INVALID-UTF8"
 )
 
 // sanitizeToValidUTF8 — S1 增量解码兜底（review 轮 2）：非法 UTF-8 序列替换为 U+FFFD 并记账。
