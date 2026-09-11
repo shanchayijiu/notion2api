@@ -36,6 +36,14 @@ type ResponsesConfig struct {
 	StoreTTLSeconds int `json:"store_ttl_seconds"`
 }
 
+// StreamingConfig holds latency switches. Defaults are preserved when fields
+// are absent (pointer nil), so existing deployments are unaffected.
+type StreamingConfig struct {
+	// InitialFlushDelayMS is the proactive first-byte keepalive delay for SSE
+	// responses. Absent keeps the historical 1500ms. Set 0 for lowest latency.
+	InitialFlushDelayMS *int `json:"initial_flush_delay_ms,omitempty"`
+}
+
 type LoginHelperConfig struct {
 	SessionsDir string `json:"sessions_dir,omitempty"`
 	TimeoutSec  int    `json:"timeout_sec"`
@@ -179,6 +187,7 @@ type AppConfig struct {
 	StreamChunkRunes      int                  `json:"stream_chunk_runes"`
 	Admin                 AdminConfig          `json:"admin"`
 	Responses             ResponsesConfig      `json:"responses"`
+	Streaming             StreamingConfig      `json:"streaming,omitempty"`
 	Storage               StorageConfig        `json:"storage"`
 	Limits                LimitsConfig         `json:"limits,omitempty"`
 	Prompt                PromptConfig         `json:"prompt"`

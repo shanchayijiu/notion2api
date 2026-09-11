@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 type StoredResponse struct {
@@ -1673,9 +1674,21 @@ func rawMayNeedSillyTavernPayloadFallback(raw []byte) bool {
 	return bytes.Contains(raw, []byte(`"continue_prefill"`)) || bytes.Contains(raw, []byte(`"show_thoughts"`))
 }
 
-func chatCompletionInitialFlushDelayForRequest(request PromptRunRequest) time.Duration {
+func (a *App) initialFlushDelayFor(request PromptRunRequest) time.Duration {
 	if request.ClientProfile == sillyTavernClientProfile || request.StreamReasoningWarmup {
 		return 0
+	}
+	cfg, _, _ := a.State.Snapshot()
+	return resolveInitialFlushDelay(cfg)
+}
+
+func resolveInitialFlushDelay(cfg AppConfig) time.Duration {
+	if cfg.Streaming.InitialFlushDelayMS != nil {
+		ms := *cfg.Streaming.InitialFlushDelayMS
+		if ms < 0 {
+			ms = 0
+		}
+		return time.Duration(ms) * time.Millisecond
 	}
 	return chatCompletionInitialFlushDelay
 }
@@ -1689,7 +1702,16 @@ func applyInferenceResultOutputPolicy(result InferenceResult, request PromptRunR
 	return result
 }
 
+func (a *App) adaptPromptRequest(request PromptRunRequest) PromptRunRequest {
+	if a == nil || a.State == nil {
+		return request
+	}
+	cfg, _, _ := a.State.Snapshot()
+	return applyPromptAdapterToRequest(cfg, request)
+}
+
 func (a *App) runPrompt(r *http.Request, request PromptRunRequest) (InferenceResult, error) {
+	request = a.adaptPromptRequest(request)
 	if a.runPromptOverride != nil {
 		return a.runPromptOverride(r, request)
 	}
@@ -1697,6 +1719,7 @@ func (a *App) runPrompt(r *http.Request, request PromptRunRequest) (InferenceRes
 }
 
 func (a *App) runPromptStream(r *http.Request, request PromptRunRequest, onDelta func(string) error) (InferenceResult, error) {
+	request = a.adaptPromptRequest(request)
 	if a.runPromptStreamOverride != nil {
 		return a.runPromptStreamOverride(r, request, onDelta)
 	}
@@ -1704,6 +1727,7 @@ func (a *App) runPromptStream(r *http.Request, request PromptRunRequest, onDelta
 }
 
 func (a *App) runPromptStreamWithSink(r *http.Request, request PromptRunRequest, sink InferenceStreamSink) (InferenceResult, error) {
+	request = a.adaptPromptRequest(request)
 	if a.runPromptStreamSinkOverride != nil {
 		return a.runPromptStreamSinkOverride(r, request, sink)
 	}
@@ -1753,6 +1777,15 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "messages must contain text or supported attachments", "invalid_request_error", nilString())
 		return
 	}
+	genParams, err := parseGenerationParams(typed)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error", nilString())
+		return
+	}
+	applyGenerationParamHeaders(w, genParams)
+	if instruction := genParams.responseFormatInstruction(); instruction != "" {
+		normalized.HiddenPrompt = joinPromptSections(normalized.HiddenPrompt, instruction)
+	}
 	cfg, _, registry := a.State.Snapshot()
 	requestedModelID := requestedModelFromTyped(typed.Model, cfg.DefaultPublicModel())
 	useWebSearch := requestedWebSearchFromTyped(typed.UseWebSearch, typed.Metadata, typed.Tools, cfg.Features.UseWebSearch)
@@ -1782,6 +1815,8 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		StopSequences:          parseStopSequences(typed.Stop),
 		AllowTextToolSynthesis: cfg.Features.AllowTextToolSynthesis,
 		ClientWorkingDirectory: extractWorkingDirectory(messages),
+		MaxOutputTokens:        genParams.MaxOutputTokens,
+		ParallelToolCalls:      genParams.ParallelToolCalls,
 	}
 	freshThreadMode := forceFreshThreadPerRequest(cfg)
 	hasTools := toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
@@ -1823,12 +1858,20 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// C1：续轮摘要版（不重复全量 few-shot，控制请求体）
 			request.ToolBridgeSection = buildToolBridgeSummary(request.ToolsRaw, extractWorkingDirectory(messages))
 			request.ToolBridgeAssistantSample = ""
-			request.ToolBridgeSection += buildToolResultsPrompt(toolMsgs)
+			// P0-2：回填完整工具交换（invoked name/arguments + call_id + 结果）
+			if exchange := buildToolExchangePrompt(messages); exchange != "" {
+				request.ToolBridgeSection += exchange
+			} else {
+				request.ToolBridgeSection += buildToolResultsPrompt(toolMsgs)
+			}
 		}
 	}
 	request.ConversationID = firstNonEmpty(strings.TrimSpace(conversation.ID), preferredConversationID)
 	conversationID := a.startConversationTurn(conversation.ID, preferredConversationID, "api", "chat_completions", resolveRequestPromptForContinuation(normalized), request)
 	setConversationIDHeader(w, conversationID)
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetModel(entry.ID)
+	}
 	stream := typed.Stream
 	if stream {
 		includeUsage := false
@@ -1846,14 +1889,19 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// tool_calls 必须在 sanitize 之前 extract（净化会剥离工具块，剥离后再提取必丢）
 	rawResultText := result.Text
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetAccount(result.AccountEmail)
+		t.MarkToken()
+	}
 	result = applyInferenceResultOutputPolicy(result, request)
 	if len(request.StopSequences) > 0 {
 		// S4 stop 截断：只作用于净化后的正文通道（工具调用不受影响）
 		result.Text = truncateAtStop(result.Text, request.StopSequences)
 	}
+	result = applyMaxOutputTokens(result, request.MaxOutputTokens)
 	responsePayload := buildChatCompletionWithToolsForWorkingDirectory(result, entry.ID, cfg.DebugUpstream, hasTools, request.ClientWorkingDirectory)
 	// 工具桥：请求带 tools 时从响应提取工具调用（Notion 不支持原生 tool_calls，走 prompt 桥）
-	if hasTools {
+	if hasTools && !result.Truncated {
 		calls := extractToolCalls(rawResultText)
 		if len(calls) == 0 && request.AllowTextToolSynthesis {
 			calls = synthesizeToolCall(rawResultText, parseToolList(typed.Tools), messages, toolChoiceForced(typed.ToolChoice), forcedToolName(typed.ToolChoice))
@@ -1864,6 +1912,7 @@ func (a *App) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		toolList := parseToolList(typed.Tools)
 		calls = filterCallsToAvailable(calls, toolList)
 		calls = normalizeToolArgumentsWithSchema(calls, toolList)
+		calls = applyParallelToolCallsLimit(calls, request.ParallelToolCalls)
 		if len(calls) > 0 {
 			calls = unmaskToolCallPathsForWorkingDirectory(calls, request.ClientWorkingDirectory)
 			if choice, ok := responsePayload["choices"].([]map[string]any); ok && len(choice) > 0 {
@@ -2098,7 +2147,11 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 			// C1：续轮摘要版
 			request.ToolBridgeSection = buildToolBridgeSummary(request.ToolsRaw, extractWorkingDirectory(toAnySlice(responsesInputAsMessages(typed.Input))))
 			request.ToolBridgeAssistantSample = ""
-			request.ToolBridgeSection += buildToolResultsPrompt(toolMsgs)
+			if exchange := buildToolExchangePrompt(sliceValue(typed.Input)); exchange != "" {
+				request.ToolBridgeSection += exchange
+			} else {
+				request.ToolBridgeSection += buildToolResultsPrompt(toolMsgs)
+			}
 		}
 	}
 	if freshThreadMode && strings.TrimSpace(conversation.ID) == "" {
@@ -2107,6 +2160,9 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 	request.ConversationID = firstNonEmpty(strings.TrimSpace(conversation.ID), preferredConversationID)
 	conversationID := a.startConversationTurn(conversation.ID, preferredConversationID, "api", "responses", resolveRequestPromptForContinuation(normalized), request)
 	setConversationIDHeader(w, conversationID)
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetModel(entry.ID)
+	}
 	if stream {
 		a.writeResponsesLiveStream(w, r, request, entry.ID, cfg.DebugUpstream, conversationID)
 		return
@@ -2119,6 +2175,10 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	// tool_calls 必须在 sanitize 之前 extract（净化会剥离工具块，剥离后再提取必丢）
 	rawResultText := result.Text
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetAccount(result.AccountEmail)
+		t.MarkToken()
+	}
 	hasTools := toolsAllowedByChoice(typed.Tools, typed.ToolChoice)
 	var toolCalls []OpenAIToolCall
 	if hasTools {
@@ -2162,16 +2222,12 @@ func (a *App) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) writeUpstreamError(w http.ResponseWriter, err error) {
 	message := err.Error()
-	lower := strings.ToLower(message)
 	if isDispatchCapacityExceededError(err) {
 		writeOpenAIError(w, http.StatusTooManyRequests, message, "rate_limit_error", "dispatch_capacity_exceeded")
 		return
 	}
-	if strings.Contains(lower, "context deadline exceeded") || strings.Contains(lower, "timeout") {
-		writeOpenAIError(w, http.StatusGatewayTimeout, message, "api_timeout_error", "upstream_timeout")
-		return
-	}
-	writeOpenAIError(w, http.StatusBadGateway, message, "api_error", "upstream_error")
+	class := classifyUpstreamError(err)
+	writeOpenAIError(w, class.Status, message, class.Type, class.Code)
 }
 
 func prepareOpenAISSEHeaders(w http.ResponseWriter) {
@@ -2294,12 +2350,21 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 
 	completionID := "chatcmpl-" + strings.ReplaceAll(randomUUID(), "-", "")
 	created := time.Now().Unix()
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetModel(modelID)
+	}
 	var emittedVisibleText strings.Builder
 	var emittedReasoning strings.Builder
 	var streamSieve = toolStreamSieve{lastFeed: time.Now()}
 	// stop 序列存在时走缓冲模式（S4 截断必须先于下发；实时增量无法中途撤回）
 	stopBuffered := len(request.StopSequences) > 0
 	var stopBuffer strings.Builder
+	truncated := false
+	maxOutputRunes := 0
+	if request.MaxOutputTokens > 0 {
+		maxOutputRunes = request.MaxOutputTokens * 4
+	}
+	emittedVisibleRunes := 0
 	warmupSent := false
 	const reasoningHeartbeat = "\u200b"
 	var writeMu sync.Mutex
@@ -2328,7 +2393,7 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 		}, usageNull(includeUsage)))
 	}
 	emitContent := func(part string) error {
-		if part == "" {
+		if part == "" || truncated {
 			return nil
 		}
 		if stopBuffered {
@@ -2337,16 +2402,38 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 			return nil
 		}
 		// toolStreamSieve：半截工具标记缓冲，不泄漏到正文
-		if safe := streamSieve.feed(part); safe != "" {
-			if err := startStream(); err != nil {
-				return err
-			}
-			emittedVisibleText.WriteString(safe)
-			return safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
-				buildChatStreamDeltaChoice(0, map[string]any{"content": safe}),
-			}, usageNull(includeUsage)))
+		safe := streamSieve.feed(part)
+		if safe == "" {
+			return nil
 		}
-		return nil
+		if maxOutputRunes > 0 {
+			runes := []rune(safe)
+			if emittedVisibleRunes+len(runes) > maxOutputRunes {
+				keep := maxOutputRunes - emittedVisibleRunes
+				if keep < 0 {
+					keep = 0
+				}
+				safe = strings.TrimRight(string(runes[:keep]), " \t\r\n")
+				truncated = true
+			}
+		}
+		if safe == "" {
+			return nil
+		}
+		if err := startStream(); err != nil {
+			return err
+		}
+		emittedVisibleText.WriteString(safe)
+		emittedVisibleRunes += utf8.RuneCountInString(safe)
+		if maxOutputRunes > 0 && emittedVisibleRunes >= maxOutputRunes {
+			truncated = true
+		}
+		if t := requestTimerFromRequest(r); t != nil {
+			t.MarkToken()
+		}
+		return safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
+			buildChatStreamDeltaChoice(0, map[string]any{"content": safe}),
+		}, usageNull(includeUsage)))
 	}
 	emitReasoning := func(part string) error {
 		if part == "" || request.SuppressReasoningOutput {
@@ -2356,6 +2443,9 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 			return err
 		}
 		emittedReasoning.WriteString(part)
+		if t := requestTimerFromRequest(r); t != nil {
+			t.MarkToken()
+		}
 		return safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
 			buildChatStreamReasoningChoice(0, part),
 		}, usageNull(includeUsage)))
@@ -2385,12 +2475,13 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 	}
 	stopProactiveFlush := make(chan struct{})
 	defer close(stopProactiveFlush)
-	if chatCompletionInitialFlushDelayForRequest(request) <= 0 {
+	initialFlushDelay := a.initialFlushDelayFor(request)
+	if initialFlushDelay <= 0 {
 		_ = startStream()
 		_ = emitReasoningWarmup()
 	} else {
 		go func() {
-			timer := time.NewTimer(chatCompletionInitialFlushDelayForRequest(request))
+			timer := time.NewTimer(initialFlushDelay)
 			defer timer.Stop()
 			for {
 				select {
@@ -2420,6 +2511,9 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 		KeepAlive:       emitKeepAlive,
 	})
 	if err != nil {
+		if t := requestTimerFromRequest(r); t != nil {
+			t.MarkStreamError()
+		}
 		partialRaw := emittedVisibleText.String() + " " + streamSieve.flush()
 		if stopBuffered {
 			partialRaw = stopBuffer.String()
@@ -2469,10 +2563,14 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 	}
 	// 流式工具调用（REQ-TOOL-04 增量分片）：净化前提取 → 有调用则输出 tool_calls 分片，正文置空
 	rawResultText := result.Text
+	if t := requestTimerFromRequest(r); t != nil {
+		t.SetAccount(result.AccountEmail)
+		t.MarkToken()
+	}
 	toolCalls := []OpenAIToolCall(nil)
 	// sieve 残留：未闭合工具块降级文本（无 toolCalls 时才下发）
 	sieveTail := streamSieve.flush()
-	if len(request.ToolsRaw) > 0 {
+	if len(request.ToolsRaw) > 0 && !truncated {
 		toolCalls = extractToolCalls(rawResultText)
 		if len(toolCalls) == 0 && request.AllowTextToolSynthesis {
 			// 普通文本合成默认关闭；显式结构化工具块仍在上方直接提取。
@@ -2491,6 +2589,7 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 		}
 		toolCalls = filterCallsToAvailable(toolCalls, request.ToolsRaw)
 		toolCalls = normalizeToolArgumentsWithSchema(toolCalls, request.ToolsRaw)
+		toolCalls = applyParallelToolCallsLimit(toolCalls, request.ParallelToolCalls)
 		if len(toolCalls) > 0 {
 			toolCalls = unmaskToolCallPathsForWorkingDirectory(toolCalls, request.ClientWorkingDirectory)
 		}
@@ -2504,6 +2603,11 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 
 	assistantText := result.Text
 	reasoningText := result.Reasoning
+	if truncated && !stopBuffered {
+		// Streamed content was cut at the max_tokens boundary; report usage for
+		// what was actually delivered.
+		assistantText = emittedVisibleText.String()
+	}
 	var finalUsage map[string]any
 	if includeUsage {
 		finalUsage = buildUsage(result.Prompt, assistantText, reasoningText)
@@ -2561,6 +2665,21 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 	if stopBuffered {
 		// stop 缓冲模式：整段收集 → sanitize → S4 截断 → 一次下发（正文通道）
 		finalText := truncateAtStop(assistantText, request.StopSequences)
+		if maxOutputRunes > 0 {
+			var cut bool
+			finalText, cut = truncateTextToTokens(finalText, request.MaxOutputTokens)
+			if cut {
+				truncated = true
+				assistantText = finalText
+				if includeUsage {
+					finalUsage = buildUsage(result.Prompt, assistantText, reasoningText)
+				}
+			}
+		}
+		finishReason := "stop"
+		if truncated {
+			finishReason = "length"
+		}
 		if err := startStream(); err != nil {
 			return
 		}
@@ -2576,7 +2695,7 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		_ = safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
-			buildChatStreamFinishChoice(0, "stop"),
+			buildChatStreamFinishChoice(0, finishReason),
 		}, usageNull(includeUsage)))
 		// usage 片：finish 之后、DONE 之前；choices 空数组（REQ-STR-08）
 		if includeUsage {
@@ -2590,12 +2709,12 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if remainingText := textDeltaSuffix(emittedVisibleText.String(), assistantText); remainingText != "" {
+	if remainingText := textDeltaSuffix(emittedVisibleText.String(), assistantText); remainingText != "" && !truncated {
 		if err := emitContent(remainingText); err != nil {
 			return
 		}
 	}
-	if len(toolCalls) == 0 && strings.TrimSpace(sieveTail) != "" && !strings.Contains(assistantText, sieveTail) {
+	if len(toolCalls) == 0 && !truncated && strings.TrimSpace(sieveTail) != "" && !strings.Contains(assistantText, sieveTail) {
 		// sieve 未闭合块降级文本（工具场景正文通道为空，不重复发）。
 		// review 循环 3：assistantText 已含该残留（经 remainingText 发）则不重复发。
 		if err := emitContent(sieveTail); err != nil {
@@ -2605,8 +2724,12 @@ func (a *App) writeChatCompletionLiveStream(w http.ResponseWriter, r *http.Reque
 	if err := startStream(); err != nil {
 		return
 	}
+	finishReason := "stop"
+	if truncated {
+		finishReason = "length"
+	}
 	_ = safeWriteData(buildChatStreamChunk(completionID, created, modelID, []map[string]any{
-		buildChatStreamFinishChoice(0, "stop"),
+		buildChatStreamFinishChoice(0, finishReason),
 	}, usageNull(includeUsage)))
 	// usage 片：finish 之后、DONE 之前；choices 空数组（REQ-STR-08）
 	if includeUsage {
@@ -2704,6 +2827,9 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		}
 		reasoningPhaseStarted = false
 		emittedVisibleText.WriteString(part)
+		if t := requestTimerFromRequest(r); t != nil {
+			t.MarkToken()
+		}
 		return safeWriteEvent("response.output_text.delta", buildResponsesOutputTextDeltaEvent(responseID, outputItemID, part))
 	}
 	emitReasoningDelta := func(part string) error {
@@ -2715,6 +2841,9 @@ func (a *App) writeResponsesLiveStream(w http.ResponseWriter, r *http.Request, r
 		}
 		reasoningPhaseStarted = true
 		emittedReasoning.WriteString(part)
+		if t := requestTimerFromRequest(r); t != nil {
+			t.MarkToken()
+		}
 		return safeWriteEvent("response.reasoning.delta", buildResponsesReasoningDeltaEvent(responseID, outputItemID, part))
 	}
 	emitReasoningWarmup := func() error {
@@ -3079,13 +3208,25 @@ func (a *App) writeResponsesStream(w http.ResponseWriter, r *http.Request, resul
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	statusCode := http.StatusOK
+	requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+	if requestID == "" {
+		requestID = "req_" + shortID(16)
+	}
+	timer := newRequestTimer(requestID)
+	r = withRequestTimer(r, timer)
 	defer func() {
-		observeRequestDuration(r.URL.Path, r.Method, statusCode, time.Since(startedAt))
+		elapsed := time.Since(startedAt)
+		observeRequestDuration(r.URL.Path, r.Method, statusCode, elapsed)
+		if timer.HasToken() {
+			observeTTFT(timer.TTFT())
+		}
+		logRequestCompletion(timer, r, statusCode, elapsed)
 	}()
 	log.Printf("[inbound] %s %s", r.Method, r.URL.Path)
 	safeWriter := &panicSafeResponseWriter{ResponseWriter: w}
 	applyCORSHeaders(safeWriter)
 	safeWriter.Header().Set("X-Build-Fingerprint", resolveBuildIdentity().Fingerprint)
+	safeWriter.Header().Set("X-Request-Id", requestID)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			stack := strings.TrimSpace(string(debug.Stack()))

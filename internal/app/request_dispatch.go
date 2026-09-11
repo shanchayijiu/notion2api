@@ -346,7 +346,7 @@ func (a *App) probeAccountProtocolHealth(ctx context.Context, cfg AppConfig, ses
 }
 
 func (a *App) loadReadyDispatchSession(ctx context.Context, cfg AppConfig, account NotionAccount) (SessionInfo, error) {
-	session, err := loadSessionInfoForAccountRefresh(cfg, account)
+	session, err := cachedLoadSessionInfoForAccount(cfg, account)
 	if err != nil {
 		return SessionInfo{}, err
 	}

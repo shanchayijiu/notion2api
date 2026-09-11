@@ -1193,6 +1193,8 @@ func buildChatCompletionWithToolsForWorkingDirectory(result InferenceResult, mod
 		}
 		message["tool_calls"] = calls
 		finishReason = "tool_calls"
+	} else if result.Truncated {
+		finishReason = "length"
 	}
 	payload := map[string]any{
 		"id":      "chatcmpl-" + strings.ReplaceAll(randomUUID(), "-", ""),

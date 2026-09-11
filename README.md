@@ -157,6 +157,114 @@ HTTP 请求优先顺序：
 - 修改管理台前端后需执行 `npm --prefix ./frontend run build:static`
 - 调整会话延续与存储时，建议同步检查 `internal/app/sqlite_store.go` 的 schema 与迁移兼容性
 
+## 架构
+
+```
+Client → API Gateway → Request Dispatcher → Agent Runtime → Provider → Notion Web
+```
+
+- **API Gateway**：路由、鉴权、`X-Request-Id`、body 限制（`internal/app/main.go`）
+- **Request Dispatcher**：账号选择、健康探测缓存、预算、半开冷却、断连传播（`request_dispatch.go`）
+- **Agent Runtime**：Session 缓存、流式处理、工具协议、Prompt Adapter、错误恢复、可观测性
+- **Provider**：`NotionAIClient`（transport 缓存 + surf 回退；未来可替换/扩展）
+
+详见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+
+## OpenAI SDK 接入示例
+
+只改 `base_url` + `api_key`：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8787/v1", api_key="change-me-openai-key")
+
+# 非流式
+resp = client.chat.completions.create(
+    model="gpt-5.4",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(resp.choices[0].message.content)
+
+# 流式
+for chunk in client.chat.completions.create(
+    model="gpt-5.4",
+    messages=[{"role": "user", "content": "写一个快排"}],
+    stream=True,
+):
+    delta = chunk.choices[0].delta.content if chunk.choices else None
+    if delta:
+        print(delta, end="", flush=True)
+```
+
+## Tool Calling 示例
+
+传入标准 `tools` + `tool_choice`，网关返回标准 `tool_calls`；把 assistant 的 `tool_calls` 与 `tool` 结果原样回传即可继续：
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": "read a file",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+    },
+}]
+resp = client.chat.completions.create(
+    model="gpt-5.4",
+    messages=[{"role": "user", "content": "读一下 note.txt"}],
+    tools=tools,
+    tool_choice="auto",
+)
+msg = resp.choices[0].message
+# msg.tool_calls[0].function.name / .arguments
+```
+
+约束：`tool_choice="none"` 时绝不输出工具调用；`parallel_tool_calls=false` 时只返回首个调用。
+
+## 生成参数支持
+
+| 参数 | 行为 |
+|---|---|
+| `max_tokens` / `max_completion_tokens` | 本地强制截断，`finish_reason=length` |
+| `n>1` | 400（只返回单个 choice） |
+| `temperature` / `top_p` | 越界 400；合法值接受但上游无法生效，响应头 `X-Notion2API-Unsupported-Params` 显式上报 |
+| `response_format`（`json_object` / `json_schema`） | 注入输出格式指令 |
+| `parallel_tool_calls` | 支持（false 只保留首个调用） |
+
+## 延迟开关
+
+- `features.use_web_search`：是否联网检索（沿用配置值）。
+- `streaming.initial_flush_delay_ms`：SSE 首字节主动 flush 延时；缺省 1500ms，设 `0` 为最低延迟。
+
+## 错误与恢复
+
+标准错误体 `{"error":{"message","type","param","code"}}`，分类：
+
+- 额度/premium/402 → `429 insufficient_quota`
+- 429 → `429 rate_limit_error`
+- session/401/403 → `401 invalid_api_key`
+- `temporarily-unavailable`/5xx → `503 upstream_unavailable`
+- 超时 → `504 upstream_timeout`
+- 其余 → `502 upstream_error`
+
+流式中断：首字节前返回 HTTP 错误；首字节后发 `error` 事件（`code=upstream_aborted`）再 `[DONE]`。客户端断开会取消上游请求。
+
+## 可观测性
+
+- 每请求日志：`[req] id=... path=... status=... model=... account=... ttft_ms=... total_ms=... retries=... stream_error=...`
+- `/metrics`（Prometheus）：`notion2api_request_duration_seconds`、`notion2api_ttft_seconds` 等。
+
+## 测试
+
+```bash
+make test          # vet + 全量测试
+# 或 Windows：
+pwsh -File scripts/test.ps1
+```
+
+包含 OpenAI Python SDK 兼容冒烟（无 python/openai 时自动跳过）。详见 [`TEST_REPORT.md`](TEST_REPORT.md)。
+
 ## 开源协议
 
 MIT License

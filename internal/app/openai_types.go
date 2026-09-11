@@ -7,30 +7,47 @@ import (
 )
 
 type chatCompletionsRequestBody struct {
-	Model              string   `json:"model,omitempty"`
-	Stream             bool     `json:"stream,omitempty"`
-	Stop               any      `json:"stop,omitempty"`
-	ConversationID     string   `json:"conversation_id,omitempty"`
-	Conversation       string   `json:"conversation,omitempty"`
-	ThreadID           string   `json:"thread_id,omitempty"`
-	Thread             string   `json:"thread,omitempty"`
-	NotionThreadID     string   `json:"notion_thread_id,omitempty"`
-	AccountEmail       string   `json:"account_email,omitempty"`
-	NotionAccountEmail string   `json:"notion_account_email,omitempty"`
-	UseWebSearch       *bool    `json:"use_web_search,omitempty"`
-	Metadata           any      `json:"metadata,omitempty"`
-	Tools              any      `json:"tools,omitempty"`
-	ToolChoice         any      `json:"tool_choice,omitempty"`
-	StreamOptions      any      `json:"stream_options,omitempty"`
-	Messages           any      `json:"messages,omitempty"`
-	Attachments        any      `json:"attachments,omitempty"`
-	StreamIncludeUsage *bool    `json:"-"`
-	Type               string   `json:"type,omitempty"`
-	UserName           string   `json:"user_name,omitempty"`
-	CharName           string   `json:"char_name,omitempty"`
-	GroupNames         []string `json:"group_names,omitempty"`
-	ContinuePrefill    string   `json:"continue_prefill,omitempty"`
-	ShowThoughts       *bool    `json:"show_thoughts,omitempty"`
+	Model              string `json:"model,omitempty"`
+	Stream             bool   `json:"stream,omitempty"`
+	Stop               any    `json:"stop,omitempty"`
+	ConversationID     string `json:"conversation_id,omitempty"`
+	Conversation       string `json:"conversation,omitempty"`
+	ThreadID           string `json:"thread_id,omitempty"`
+	Thread             string `json:"thread,omitempty"`
+	NotionThreadID     string `json:"notion_thread_id,omitempty"`
+	AccountEmail       string `json:"account_email,omitempty"`
+	NotionAccountEmail string `json:"notion_account_email,omitempty"`
+	UseWebSearch       *bool  `json:"use_web_search,omitempty"`
+	Metadata           any    `json:"metadata,omitempty"`
+	Tools              any    `json:"tools,omitempty"`
+	ToolChoice         any    `json:"tool_choice,omitempty"`
+	StreamOptions      any    `json:"stream_options,omitempty"`
+	Messages           any    `json:"messages,omitempty"`
+	Attachments        any    `json:"attachments,omitempty"`
+	StreamIncludeUsage *bool  `json:"-"`
+	// OpenAI generation knobs. Kept in the typed request so they are never
+	// silently dropped by json.Unmarshal (see generation_params.go for how
+	// mappable vs unsupported values are handled).
+	Temperature         *float64 `json:"temperature,omitempty"`
+	TopP                *float64 `json:"top_p,omitempty"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	N                   *int     `json:"n,omitempty"`
+	ResponseFormat      any      `json:"response_format,omitempty"`
+	ParallelToolCalls   *bool    `json:"parallel_tool_calls,omitempty"`
+	PresencePenalty     *float64 `json:"presence_penalty,omitempty"`
+	FrequencyPenalty    *float64 `json:"frequency_penalty,omitempty"`
+	Seed                *int64   `json:"seed,omitempty"`
+	ReasoningEffort     string   `json:"reasoning_effort,omitempty"`
+	Logprobs            *bool    `json:"logprobs,omitempty"`
+	TopLogprobs         *int     `json:"top_logprobs,omitempty"`
+	User                string   `json:"user,omitempty"`
+	Type                string   `json:"type,omitempty"`
+	UserName            string   `json:"user_name,omitempty"`
+	CharName            string   `json:"char_name,omitempty"`
+	GroupNames          []string `json:"group_names,omitempty"`
+	ContinuePrefill     string   `json:"continue_prefill,omitempty"`
+	ShowThoughts        *bool    `json:"show_thoughts,omitempty"`
 }
 
 type responsesRequestBody struct {
@@ -146,6 +163,20 @@ func extractChatCompletionsRequestBody(payload map[string]any) chatCompletionsRe
 	body.StreamOptions = payload["stream_options"]
 	body.Messages = payload["messages"]
 	body.Attachments = payload["attachments"]
+	body.Temperature = numericFloatField(payload["temperature"])
+	body.TopP = numericFloatField(payload["top_p"])
+	body.MaxTokens = numericIntField(payload["max_tokens"])
+	body.MaxCompletionTokens = numericIntField(payload["max_completion_tokens"])
+	body.N = numericIntField(payload["n"])
+	body.ResponseFormat = payload["response_format"]
+	body.ParallelToolCalls = numericBoolField(payload["parallel_tool_calls"])
+	body.PresencePenalty = numericFloatField(payload["presence_penalty"])
+	body.FrequencyPenalty = numericFloatField(payload["frequency_penalty"])
+	body.Seed = numericInt64Field(payload["seed"])
+	body.ReasoningEffort = strings.TrimSpace(stringValue(payload["reasoning_effort"]))
+	body.Logprobs = numericBoolField(payload["logprobs"])
+	body.TopLogprobs = numericIntField(payload["top_logprobs"])
+	body.User = strings.TrimSpace(stringValue(payload["user"]))
 	if value, ok := parseIncludeUsageFromStreamOptionsAny(body.StreamOptions); ok {
 		copyValue := value
 		body.StreamIncludeUsage = &copyValue

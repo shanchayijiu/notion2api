@@ -55,10 +55,14 @@ type sqliteDurationKey struct {
 var requestDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 var transportCallDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
 var sqliteOpDurationBuckets = []float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1}
+var ttftBuckets = []float64{0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 13, 21, 34}
 
 var (
 	requestDurationMu     sync.Mutex
 	requestDurationSeries = map[requestDurationKey]*histogramSeries{}
+
+	ttftMu     sync.Mutex
+	ttftSeries = newHistogramSeries(len(ttftBuckets))
 
 	dispatchInflightMu sync.Mutex
 	dispatchInflight   = map[string]int64{}
@@ -80,6 +84,10 @@ func resetMetricsForTest() {
 	requestDurationMu.Lock()
 	requestDurationSeries = map[requestDurationKey]*histogramSeries{}
 	requestDurationMu.Unlock()
+
+	ttftMu.Lock()
+	ttftSeries = newHistogramSeries(len(ttftBuckets))
+	ttftMu.Unlock()
 
 	dispatchInflightMu.Lock()
 	dispatchInflight = map[string]int64{}
@@ -123,6 +131,15 @@ func observeRequestDuration(path string, method string, status int, elapsed time
 	}
 	series.observe(seconds, requestDurationBuckets)
 	requestDurationMu.Unlock()
+}
+
+func observeTTFT(elapsed time.Duration) {
+	if elapsed < 0 {
+		return
+	}
+	ttftMu.Lock()
+	ttftSeries.observe(elapsed.Seconds(), ttftBuckets)
+	ttftMu.Unlock()
 }
 
 func setDispatchSlotInflight(email string, inflight int) {
@@ -253,6 +270,10 @@ func writePrometheusMetrics(w http.ResponseWriter) {
 	_, _ = fmt.Fprintln(w, "# TYPE notion2api_request_duration_seconds histogram")
 	writeRequestDurationHistogram(w)
 
+	_, _ = fmt.Fprintln(w, "# HELP notion2api_ttft_seconds Time to first streamed token in seconds (all inference requests).")
+	_, _ = fmt.Fprintln(w, "# TYPE notion2api_ttft_seconds histogram")
+	writeTTFTHistogram(w)
+
 	_, _ = fmt.Fprintln(w, "# HELP notion2api_dispatch_slot_inflight Current in-flight dispatch slots per account email.")
 	_, _ = fmt.Fprintln(w, "# TYPE notion2api_dispatch_slot_inflight gauge")
 	writeDispatchInflightGauge(w)
@@ -331,6 +352,14 @@ func writeDispatchInflightGauge(w http.ResponseWriter) {
 		_, _ = fmt.Fprintf(w, "notion2api_dispatch_slot_inflight{email=\"%s\"} %d\n",
 			escapePrometheusLabelValue(item.email), item.value)
 	}
+}
+
+func writeTTFTHistogram(w http.ResponseWriter) {
+	ttftMu.Lock()
+	series := *ttftSeries
+	series.buckets = append([]uint64(nil), ttftSeries.buckets...)
+	ttftMu.Unlock()
+	writeHistogramSeries(w, "notion2api_ttft_seconds", "", ttftBuckets, &series)
 }
 
 func writeTransportCallHistogram(w http.ResponseWriter) {

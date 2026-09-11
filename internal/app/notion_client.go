@@ -418,6 +418,9 @@ type InferenceResult struct {
 	ContextID        string               `json:"context_id,omitempty"`
 	OriginalDatetime string               `json:"original_datetime,omitempty"`
 	ToolUses         []InferenceToolUse   `json:"tool_uses,omitempty"`
+	// Truncated is set when the response was cut short locally to satisfy
+	// max_tokens / max_completion_tokens. It maps to finish_reason=length.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type InferenceTranscriptSummary struct {
@@ -462,6 +465,10 @@ type PromptRunRequest struct {
 	ToolBridgeAssistantSample         string
 	ToolsRaw                          []map[string]any
 	StopSequences                     []string
+	MaxOutputTokens                   int
+	ParallelToolCalls                 *bool
+	PromptAdapterApplied              bool
+	PromptAdapterName                 string
 	SessionRepeatTurn                 bool
 	ForceSessionRepeatTurn            bool
 	attachmentThreadReady             bool
